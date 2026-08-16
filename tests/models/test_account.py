@@ -29,3 +29,4 @@ def test_created_at_accepts_neo4j_nanosecond_precision() -> None:
         created_at="2026-08-16T10:00:00.123456789+00:00",
     )
     assert account.created_at.year == 2026
+    assert account.created_at.microsecond == 123456

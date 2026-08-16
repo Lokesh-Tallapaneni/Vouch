@@ -29,6 +29,18 @@ def test_profile_update_reports_only_supplied_fields() -> None:
     assert ProfileUpdate(title="Staff Engineer").changed_fields() == {"title": "Staff Engineer"}
 
 
+def test_an_explicit_null_is_treated_as_no_change() -> None:
+    # null means "leave it alone", not "clear it" -- this app has no
+    # clear-field operation, and honouring null would allow blanking a name.
+    assert ProfileUpdate(title=None).changed_fields() == {}
+
+
+def test_a_null_alongside_a_real_change_does_not_suppress_it() -> None:
+    assert ProfileUpdate(title=None, headline="Payments.").changed_fields() == {
+        "headline": "Payments."
+    }
+
+
 def test_person_profile_defaults_collections_to_empty() -> None:
     profile = PersonProfile(
         id="me", name="Lokesh", title="Engineer", seniority="senior", headline=""

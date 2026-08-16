@@ -54,8 +54,14 @@ class PersonProfile(BaseModel):
 class ProfileUpdate(BaseModel):
     """A PATCH body: every field optional, absent means "leave it alone".
 
-    The distinction between "absent" and "set to empty" matters -- without it a
-    form that posts only one field would blank every other one.
+    An explicit ``null`` also means "leave it alone" -- it is treated the same
+    as omission, not as a request to clear the field. There is deliberately no
+    clear-field operation: no UI affordance produces one, and honouring
+    ``null`` would let someone blank their own ``name`` through the same
+    whitelist a real update goes through. This is not a silent no-op either --
+    a body of only ``{"headline": null}`` collapses to no changes, which the
+    service layer rejects as an empty update rather than treating as success.
+    A field set to a *blank string* is rejected by the validator below.
     """
 
     name: str | None = Field(default=None, max_length=120)
@@ -74,9 +80,11 @@ class ProfileUpdate(BaseModel):
         return stripped
 
     def changed_fields(self) -> dict[str, Any]:
-        """Only the fields the caller actually supplied.
+        """Only the fields the caller actually supplied a real value for.
 
-        Driven by ``exclude_unset`` rather than by truthiness, so a field
-        explicitly set to a falsy value is still an update.
+        ``exclude_unset`` drops fields the caller never mentioned;
+        ``exclude_none`` also drops a field explicitly set to ``null``, since
+        ``null`` means "leave it alone" here, not "clear it" -- see the class
+        docstring.
         """
         return self.model_dump(exclude_unset=True, exclude_none=True)
