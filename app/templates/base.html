@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Vouch{% endblock %}</title>
+  <meta name="description"
+        content="Vouch — find your way in through the people who already know the way.">
+  <link rel="stylesheet" href="/static/css/vouch.css">
+  {# Vendored, not CDN-linked: a CDN in the CSP is a trust dependency bought
+     for nothing, and vendoring means the demo works offline. The integrity
+     hash stays as tamper-evidence even though the file is same-origin --
+     it pins the exact htmx 2.0.4 build this app was tested against, so a
+     future edit to the vendored file (accidental or not) fails loudly
+     instead of silently changing behaviour. Recompute after any upgrade:
+       python -c "import hashlib,base64,pathlib; print('sha384-'+base64.b64encode(
+         hashlib.sha384(pathlib.Path('app/static/js/htmx.min.js').read_bytes())
+         .digest()).decode())" #}
+  <script src="/static/js/htmx.min.js"
+          integrity="sha384-HGfztofotfshcF7+8n44JQL2oJmowVChPTg48S+jvZoztPfvwD79OC/LTtG6dMp+"
+          defer></script>
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  {% include "_header.html" %}
+  <main id="main" class="site-main" tabindex="-1">
+    {% block content %}{% endblock %}
+  </main>
+  <footer class="site-footer">
+    <p>Vouch — a referral-path finder over a synthetic professional network.</p>
+  </footer>
+</body>
+</html>

@@ -1,0 +1,38 @@
+{# Site chrome, included by every page via base.html.
+
+   Reads one optional context variable so this partial degrades cleanly on
+   any page that hasn't wired the account layer into its view yet:
+     - `current_account`: an `Account | None` (app.models.account), e.g. from
+       `app.api.dependencies.CurrentAccount`. Jinja treats an undefined name
+       as falsy, so a page that never passes it just renders signed-out --
+       nothing breaks.
+
+   Deliberately carries no page-specific navigation links (profile, login):
+   this task owns the design system, not the page routes, and a guessed path
+   that turns out wrong is worse than no link. Whoever wires app/web/pages.py
+   should add those inside site-header__nav alongside the account indicator.
+
+   Sign-out posts to the already-built `/api/v1/auth/logout` (app/api/v1/
+   auth.py) via htmx rather than a full-page <form>: that endpoint returns
+   204 with no body, so a plain form POST would leave the browser showing a
+   blank page. `hx-on::after-request` sends the browser home once the cookie
+   is cleared -- htmx's inline-handler shorthand, no extra JS file needed for
+   one line. #}
+<header class="site-header">
+  <div class="site-header__bar">
+    <a class="site-header__brand" href="/">Vouch</a>
+    <p class="site-header__tagline">Who can introduce you, and how well do they know the way in?</p>
+    <nav class="site-header__nav" aria-label="Primary">
+      {% if current_account %}
+        <span class="site-header__account">{{ current_account.email }}</span>
+        <button type="button" class="site-header__signout"
+                hx-post="/api/v1/auth/logout"
+                hx-on::after-request="window.location.assign('/')">
+          Sign out
+        </button>
+      {% else %}
+        <span class="site-header__account">Signed out</span>
+      {% endif %}
+    </nav>
+  </div>
+</header>

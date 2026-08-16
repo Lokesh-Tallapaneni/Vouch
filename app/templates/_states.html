@@ -1,0 +1,33 @@
+{# The three states every section needs -- loading, empty, error -- so no
+   screen has to invent its own ad hoc "no results" div or swallow an error
+   into a blank box. Import with `{% from "_states.html" import loading, empty,
+   error %}` (or `with context` if a macro ever needs the request/current
+   account) and call directly, e.g. `{{ empty("No introductions found yet.",
+   "Try a broader search", "/") }}`. #}
+
+{% macro loading(message="Loading…") %}
+  {# Drop this inside whatever element carries the in-flight hx-get/hx-post
+     (or wherever `hx-indicator` points): .htmx-indicator starts hidden and
+     htmx fades it in for exactly the request's duration -- see
+     .htmx-request .htmx-indicator in vouch.css. No page-specific JS needed. #}
+  <div class="state state--loading htmx-indicator" role="status" aria-live="polite">
+    <span class="state__spinner" aria-hidden="true"></span>
+    <p>{{ message }}</p>
+  </div>
+{% endmacro %}
+
+{% macro empty(message, action_label=None, action_href=None) %}
+  {# An invitation to act, not a blank box -- the optional action is what
+     turns "nothing here" into "here's what to try instead". #}
+  <div class="state state--empty">
+    <p>{{ message }}</p>
+    {% if action_label %}<a href="{{ action_href }}">{{ action_label }}</a>{% endif %}
+  </div>
+{% endmacro %}
+
+{% macro error(message, request_id=None) %}
+  <div class="state state--error" role="alert">
+    <p>{{ message }}</p>
+    {% if request_id %}<p class="confidence">Reference: {{ request_id }}</p>{% endif %}
+  </div>
+{% endmacro %}
