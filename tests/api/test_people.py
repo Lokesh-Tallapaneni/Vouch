@@ -44,6 +44,22 @@ def _csrf_headers(client: TestClient) -> dict[str, str]:
     return {"x-csrf-token": client.cookies["csrf_token"]}
 
 
+def test_people_search_returns_matching_summaries_without_signing_in() -> None:
+    with _client(FakeGraph({"toLower(p.name) STARTS WITH": [PROFILE_ROW]})) as client:
+        response = client.get("/api/v1/people?q=pri")
+    assert response.status_code == 200
+    assert response.json()[0]["name"] == "Priya Sharma"
+
+
+def test_people_search_below_the_minimum_length_returns_200_with_an_empty_list() -> None:
+    # Not an error and not a framework quirk -- SearchService short-circuits
+    # before ever querying, and the route just returns the empty result.
+    with _client(FakeGraph({"toLower(p.name) STARTS WITH": [PROFILE_ROW]})) as client:
+        response = client.get("/api/v1/people?q=p")
+    assert response.status_code == 200
+    assert response.json() == []
+
+
 def test_a_profile_is_readable_without_signing_in() -> None:
     # The demo must work with no account. This is the test that protects that.
     with _client(FakeGraph({"OPTIONAL MATCH": [PROFILE_ROW]})) as client:

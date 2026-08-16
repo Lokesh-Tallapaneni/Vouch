@@ -60,9 +60,48 @@ async def test_the_hop_bound_is_sent_as_a_parameter_not_interpolated() -> None:
     assert "*1..5" in call.cypher, "the literal ceiling must stay in the statement"
 
 
+#: Unique to COMPANY_INSIDERS_CYPHER: INTRODUCTION_ROUTES_CYPHER's literal
+#: ceiling is *1..5, so this also doubles as the assertion (mirroring
+#: test_the_hop_bound_is_sent_as_a_parameter_not_interpolated above) that the
+#: tighter, query-specific ceiling actually survived in the statement.
+_INSIDERS_FRAGMENT = "*1..4"
+
+
 async def test_company_insiders_carry_their_best_route() -> None:
-    insiders = await ReferralService(
-        FakeGraph({"WORKED_AT {current: true}": [INSIDER_ROW]})
-    ).find_company_insiders("me", "Everline")
+    graph = FakeGraph({_INSIDERS_FRAGMENT: [INSIDER_ROW]})
+    insiders = await ReferralService(graph).find_company_insiders("me", "Everline")
     assert insiders[0].name == "Meera Nair"
     assert insiders[0].route.confidence == 0.45
+
+
+async def test_company_insiders_hop_count_above_the_ceiling_is_rejected() -> None:
+    # Q2's own ceiling (MAX_INSIDER_HOPS) is tighter than Q1's -- this is the
+    # untested half of that split: nothing previously proved
+    # find_company_insiders enforces its own bound rather than reusing Q1's.
+    with pytest.raises(InvalidInputError):
+        await ReferralService(FakeGraph({})).find_company_insiders("me", "Everline", max_hops=50)
+
+
+async def test_company_insiders_hop_count_below_one_is_rejected() -> None:
+    with pytest.raises(InvalidInputError):
+        await ReferralService(FakeGraph({})).find_company_insiders("me", "Everline", max_hops=0)
+
+
+async def test_the_insider_hop_bound_is_sent_as_a_parameter_not_interpolated() -> None:
+    graph = FakeGraph({_INSIDERS_FRAGMENT: [INSIDER_ROW]})
+    await ReferralService(graph).find_company_insiders("me", "Everline", max_hops=2)
+    call = graph.calls[0]
+    assert call.params["max_hops"] == 2
+    assert "*1..4" in call.cypher, "the query-specific literal ceiling must stay in the statement"
+
+
+async def test_the_route_limit_is_clamped_to_a_sane_maximum() -> None:
+    graph = FakeGraph({"allShortestPaths": [ROUTE_ROW]})
+    await ReferralService(graph).find_routes("me", "p0007", limit=10_000)
+    assert graph.calls[0].params["limit"] <= 50
+
+
+async def test_the_insider_limit_is_also_clamped_to_a_sane_maximum() -> None:
+    graph = FakeGraph({_INSIDERS_FRAGMENT: [INSIDER_ROW]})
+    await ReferralService(graph).find_company_insiders("me", "Everline", limit=10_000)
+    assert graph.calls[0].params["limit"] <= 50
