@@ -5,8 +5,15 @@ import re
 from veloce import TestClient
 
 from app.api.dependencies import get_graph
-from app.core.security import SESSION_COOKIE_NAME, hash_account_password
+from app.core.security import (
+    SESSION_COOKIE_NAME,
+    hash_account_password,
+    issue_session_token,
+    read_session_token,
+)
 from app.main import create_app
+from app.models.account import SessionClaims
+from tests.conftest import DUMMY_SETTINGS_ENV
 from tests.support.fake_graph import FakeGraph
 
 PROFILE_ROW = {
@@ -292,6 +299,72 @@ def test_signing_in_with_valid_credentials_redirects_and_sets_a_session_cookie()
     assert response.headers["location"] == "/people/p0001?signed_in=1"
     cookie = response.headers["set-cookie"]
     assert SESSION_COOKIE_NAME in cookie and "HttpOnly" in cookie
+
+
+def test_signing_in_mints_a_token_carrying_the_persons_display_name() -> None:
+    # Web sign-in must produce a token identical in shape to the API's --
+    # see app.web.pages._attach_session's own docstring on why it's a
+    # deliberate duplicate of app.api.v1.auth's rather than a shared import,
+    # and why that means it needs the same fix independently. Registers the
+    # name-lookup fragment explicitly so this can't pass by accident.
+    graph = FakeGraph(
+        {
+            "MATCH (a:Account {email": [
+                {
+                    "id": "acc-1",
+                    "email": "a@b.com",
+                    "person_id": "p0001",
+                    "created_at": "2026-08-16T10:00:00Z",
+                    "password_hash": hash_account_password(PASSWORD),
+                }
+            ]
+        }
+    )
+    graph.rows_by_fragment["RETURN p.name AS name"] = [{"name": "Priya Sharma"}]
+    with _client(graph) as client:
+        client.get("/sign-in")  # primes csrf_token
+        response = client.post(
+            "/sign-in",
+            data={
+                "email": "a@b.com",
+                "password": PASSWORD,
+                "csrf_token": client.cookies["csrf_token"],
+            },
+            follow_redirects=False,
+        )
+    token = response.cookies[SESSION_COOKIE_NAME]
+    claims = read_session_token(token, DUMMY_SETTINGS_ENV["JWT_SECRET"])
+    assert claims is not None
+    assert claims.name == "Priya Sharma"
+
+
+def test_an_already_signed_in_visitor_with_a_pre_upgrade_token_still_sees_their_name() -> None:
+    # The live-upgrade path: a token minted before SessionClaims carried a
+    # name (no "nm" claim at all) must still resolve one, via
+    # get_current_account_name's fallback to a database lookup -- not a
+    # blank or broken header for that session's remaining lifetime.
+    graph = FakeGraph(
+        {
+            "MATCH (a:Account {id": [
+                {
+                    "id": "acc-1",
+                    "email": "a@b.com",
+                    "person_id": "p0001",
+                    "created_at": "2026-08-16T10:00:00Z",
+                }
+            ],
+            "RETURN p.name AS name": [{"name": "Priya Sharma"}],
+        }
+    )
+    with _client(graph) as client:
+        pre_upgrade_token = issue_session_token(
+            SessionClaims(account_id="acc-1", person_id="p0001"),  # no name= at all
+            DUMMY_SETTINGS_ENV["JWT_SECRET"],
+        )
+        client.cookies.update({SESSION_COOKIE_NAME: pre_upgrade_token})
+        response = client.get("/")
+    assert response.status_code == 200
+    assert "Priya Sharma" in response.text
 
 
 def test_signing_in_with_a_wrong_password_rerenders_the_form_with_an_error() -> None:

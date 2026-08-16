@@ -155,16 +155,26 @@ _SESSION_COOKIE_FLAGS: _CookieFlags = {
 }
 
 
-def _attach_session(response: Response, account: Account, secret: str) -> None:
+async def _attach_session(
+    response: Response, account: Account, people: PersonService, secret: str
+) -> None:
     """Set the session cookie on a web-layer response, in place.
 
     Deliberately not shared with app.api.v1.auth's `_attach_session` -- see
-    `_SESSION_COOKIE_FLAGS` above for why.
+    `_SESSION_COOKIE_FLAGS` above for why -- which means it independently
+    needs the same fix that module's version has: the token carries the
+    account holder's display name (one lookup, here, at sign-in) so
+    `get_current_account_name` reads it for free on every page after this
+    one, instead of paying a database call on each. A user signing in
+    through this form must get a token identical in shape to one from the
+    JSON API -- see `SessionClaims`' own docstring for the staleness
+    trade-off that comes with it.
     """
+    name = await people.get_display_name(account.person_id)
     response.set_cookie(
         SESSION_COOKIE_NAME,
         issue_session_token(
-            SessionClaims(account_id=account.id, person_id=account.person_id), secret
+            SessionClaims(account_id=account.id, person_id=account.person_id, name=name), secret
         ),
         max_age=_SESSION_COOKIE_MAX_AGE_SECONDS,
         **_SESSION_COOKIE_FLAGS,
@@ -326,6 +336,7 @@ async def show_sign_in(request: Request) -> Response:
 async def submit_sign_in(
     request: Request,
     accounts: AccountServiceDep,
+    people: PersonServiceDep,
     settings: SettingsDep,
     email: OptionalFormField,
     password: OptionalFormField,
@@ -371,7 +382,7 @@ async def submit_sign_in(
     # every route on the site (the viewer the whole graph walks from), and
     # this is what confirms that instead of leaving it implicit.
     response = RedirectResponse(f"/people/{account.person_id}?signed_in=1", status_code=303)
-    _attach_session(response, account, settings.jwt_secret.get_secret_value())
+    await _attach_session(response, account, people, settings.jwt_secret.get_secret_value())
     return response
 
 
@@ -459,7 +470,7 @@ async def submit_sign_up(
         )
 
     response = RedirectResponse(f"/people/{account.person_id}?signed_in=1", status_code=303)
-    _attach_session(response, account, settings.jwt_secret.get_secret_value())
+    await _attach_session(response, account, people, settings.jwt_secret.get_secret_value())
     return response
 
 
