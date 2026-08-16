@@ -14,23 +14,23 @@ first load is slow.
 
 ### A 70-second walkthrough
 
-**[▶ Watch the demo recording](docs/vouch-demo.mp4)** — 70 seconds, captioned,
-recorded against the live deployment. It is committed to this repository
-rather than linked to a third-party host, so it cannot rot.
+<!-- A GIF, not a <video> tag: GitHub's markdown sanitizer strips <video>
+     outright (verified against the rendered README via the API), and
+     raw.githubusercontent.com serves .mp4 as application/octet-stream with
+     nosniff, so a browser would refuse to play it anyway. An <img> pointing
+     at a GIF is the one thing that renders and animates inline here. The
+     original H.264 is committed alongside it for anyone who wants the sharper
+     version. -->
 
-<!-- To render this as an inline player instead of a link: open a new issue on
-     this repo, drag docs/vouch-demo.mp4 into the comment box, wait for the
-     upload to finish, and copy the resulting
-     https://github.com/user-attachments/assets/<id> URL. Paste that URL alone
-     on its own line here, then close the issue without submitting it.
+![Walkthrough of Vouch: reaching into a company, opening a referral route to
+see each connection's type and strength, the pre-written introduction message,
+searching people by surname, and the network-health view showing who is the
+only bridge between two teams](docs/vouch-demo.gif)
 
-     That is the only way to get GitHub's inline player. A <video> tag is
-     removed by GitHub's markdown sanitizer (verified: only its fallback link
-     survives), and raw.githubusercontent.com serves .mp4 as
-     application/octet-stream with X-Content-Type-Options: nosniff, so a
-     browser is explicitly forbidden from playing it. The upload endpoint the
-     web UI uses is not part of the public REST API, so this step cannot be
-     scripted. -->
+*Captioned, recorded against the live deployment. Also available as
+**[H.264 video](docs/vouch-demo.mp4)** (1.2 MB — sharper, and readable at full
+size). Both are committed to this repository rather than hosted elsewhere, so
+neither can rot.*
 
 ---
 
