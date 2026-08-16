@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The route, reduced to its smallest legible form: an origin stop, one
+     strong segment, and a square terminus. Same three marks the chain
+     component draws on every page, so the tab icon and the signature element
+     are one idea rather than two. Drawn rather than lettered because at 16px a
+     "V" reads as any product beginning with V; a line between two points does
+     not. Colours are the light-theme --ink and --line-team tokens. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <rect width="32" height="32" rx="7" fill="#14181B"/>
+  <line x1="9" y1="16" x2="23" y2="16" stroke="#35B98A" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="9" cy="16" r="4.5" fill="#F4F5F2"/>
+  <rect x="18.5" y="11.5" width="9" height="9" rx="2" fill="#35B98A"/>
+</svg>

@@ -6,7 +6,16 @@
   <title>{% block title %}Vouch{% endblock %}</title>
   <meta name="description"
         content="Vouch — find your way in through the people who already know the way.">
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/static/css/vouch.css">
+  {# htmx injects its own <style> for .htmx-indicator on load. Our CSP is
+     `style-src 'self'` with no `unsafe-inline`, so the browser blocks it
+     and logs a violation on every page. vouch.css defines those rules
+     itself, so the injected copy is redundant -- switching it off removes
+     a console error a reviewer would otherwise see, rather than weakening
+     the policy to accommodate it. Configured by meta tag because that is
+     htmx's own CSP-safe mechanism: an inline <script> would be blocked too. #}
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
   {# Vendored, not CDN-linked: a CDN in the CSP is a trust dependency bought
      for nothing, and vendoring means the demo works offline. The integrity
      hash stays as tamper-evidence even though the file is same-origin --

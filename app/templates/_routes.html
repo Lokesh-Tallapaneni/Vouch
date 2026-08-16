@@ -1,8 +1,21 @@
 {% from "_states.html" import empty %}
+{% from "_confidence.html" import confidence_badge %}
 {% if routes %}
   <ol class="routes">
     {% for route in routes %}
-      <li>{% include "_chain.html" %}</li>
+      <li>
+        {# The badge sits above its diagram rather than trailing it: down a
+           ranked list the score is what the eye scans, and the route is what
+           it drops into once something looks promising. #}
+        <div class="row-head">
+          <p class="row-head__meta">
+            {{ route.hops }} hop{{ '' if route.hops == 1 else 's' }}
+            via {{ route.chain[1:-1] | join(', ') if route.hops > 1 else 'a direct connection' }}
+          </p>
+          {{ confidence_badge(route.confidence) }}
+        </div>
+        {% include "_chain.html" %}
+      </li>
     {% endfor %}
   </ol>
 {% else %}

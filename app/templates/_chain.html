@@ -1,36 +1,46 @@
-{# Renders one route as `You ══ Priya ══ Arjun ── Meera`. Connector weight
-   encodes tie strength; the context label says why those two know each other,
-   which is what turns an arrow into an explanation.
+{# Renders one introduction route as a transit line:
+
+     You ●━━━━━● Priya ●─────● Arjun ▪ Meera
+            team        project
+
+   Segment colour names the *kind* of connection and segment thickness names
+   how strong it is -- both derived from the same tie strength, so the coloured
+   track and the label beneath it reinforce each other instead of competing.
+   Origin and terminus are marked differently because a route has a direction
+   and its two ends are not interchangeable.
 
    Expects `route`, an IntroductionRoute (app.models.referral): `.hop_details`
    (list of RouteHop: from_name, to_name, context, strength) and `.confidence`.
-   Works unchanged for 1 hop (one connector) through 4 (the longest chain in
-   the seed data) -- the node/link count simply follows hop_details' length,
-   and .chain's flex-wrap (see vouch.css) keeps a long chain from overflowing
-   rather than needing hop-count-specific markup. #}
-<div class="chain" role="group" aria-label="Introduction route">
-  {# Per-hop strength bands (0.70 / 0.45) are calibrated against the seeded
-     dataset's measured tie-strength distribution, not chosen for round
-     numbers -- see the comment above .chain__link[data-strength] in
-     vouch.css for the team/project/former-colleague medians behind them. #}
+   Works unchanged for 1 hop through 4 (the longest chain in the seed data) --
+   node and segment counts simply follow hop_details' length.
+
+   The confidence badge is rendered by the *caller*, not here: it is the
+   verdict on the whole route and belongs beside the person's name in a row
+   header, where it can be scanned down a ranked list. Import the
+   `confidence_badge` macro from _confidence.html so the banding stays in
+   one place. #}
+
+<div class="chain" role="group"
+     aria-label="Introduction route, {{ route.hops }} hop{{ '' if route.hops == 1 else 's' }}, confidence {{ '%.2f'|format(route.confidence) }}">
   {% for hop in route.hop_details %}
-    {% if loop.first %}<span class="chain__node">{{ hop.from_name }}</span>{% endif %}
+    {% if loop.first %}
+      {# Every route in this app originates at the viewer -- both find_routes
+         and find_company_insiders take viewer_id as the start node -- so the
+         first stop is always "you". Rendering the viewer's own name here
+         repeated it down every row of a ranked list for no information gain;
+         the real name stays in the title for anyone who wants it. #}
+      <span class="chain__node chain__node--origin" title="{{ hop.from_name }}">You</span>
+    {% endif %}
+    {# Per-hop bands (0.70 / 0.45) sit between the measured clusters for the
+       three relationship contexts -- team edges 0.73-0.83, project edges
+       0.48-0.58, former-colleague edges around 0.29. They are not round
+       numbers by accident: 0.60/0.35 put 92% of all edges into one band and
+       made the whole encoding say nothing. See vouch.css. #}
     <span class="chain__link"
           data-strength="{{ 'strong' if hop.strength >= 0.7 else 'medium' if hop.strength >= 0.45 else 'weak' }}"
-          title="{{ hop.context }} · strength {{ '%.2f'|format(hop.strength) }}">
+          title="{{ hop.from_name }} and {{ hop.to_name }} know each other from {{ hop.context }} — tie strength {{ '%.2f'|format(hop.strength) }}">
       <span class="chain__context">{{ hop.context }}</span>
     </span>
-    <span class="chain__node">{{ hop.to_name }}</span>
+    <span class="chain__node{{ ' chain__node--target' if loop.last }}">{{ hop.to_name }}</span>
   {% endfor %}
-  {# The aggregate score gets the same three-band colour treatment as a hop
-     link (see .confidence[data-strength] in vouch.css), but NOT the same
-     thresholds: per-hop strength and route confidence are measured on
-     different distributions (confidence multiplies strength along a whole
-     chain), so each is calibrated against its own measured data -- see the
-     comment above .confidence[data-strength] in vouch.css for the numbers
-     behind 0.60 / 0.40 here. #}
-  <span class="confidence"
-        data-strength="{{ 'strong' if route.confidence >= 0.6 else 'medium' if route.confidence >= 0.4 else 'weak' }}">
-    {{ '%.2f'|format(route.confidence) }}
-  </span>
 </div>

@@ -8,7 +8,11 @@
     {% for broker in brokers %}
       <li>
         <h3><a href="/people/{{ broker.person_id }}">{{ broker.name }}</a></h3>
-        <p>{{ broker.title }} · bridges <span class="confidence">{{ broker.bridged_pairs }}</span> team pair{{ "s" if broker.bridged_pairs != 1 else "" }}</p>
+        <p class="row-head__meta">{{ broker.title }}</p>
+        {# Deliberately unbanded: bridged_pairs is a count, and colouring it
+           strong/medium/weak would imply a verdict the number does not carry. #}
+        <span class="confidence" data-label="bridges">{{ broker.bridged_pairs }}</span>
+        <span class="row-head__meta"> team pair{{ "s" if broker.bridged_pairs != 1 else "" }}</span>
       </li>
     {% endfor %}
   </ol>

@@ -1,17 +1,41 @@
 {% extends "base.html" %}
 {% from "_states.html" import empty %}
+{% from "_confidence.html" import confidence_badge %}
 {% block title %}{{ company }} — Vouch{% endblock %}
 {% block content %}
-  <h1>Reach into {{ company }}</h1>
-  <p>People currently at {{ company }}, ranked by how well you can reach them
-     within {{ max_hops }} hops.</p>
+  <p class="eyebrow">Reach into</p>
+  <h1>{{ company }}</h1>
+  <p class="lede">People currently at {{ company }}, ranked by how strong a route
+     you have to them — not by how few hops it takes.</p>
 
   {% if insiders %}
+    {# The legend turns three colours into a key. Without it the line styling is
+       decoration; with it, someone who has never seen the app can read any
+       route diagram on the page without further explanation. #}
+    <div class="legend" role="note" aria-label="How to read a route">
+      <span class="legend__item">
+        <span class="legend__swatch" data-strength="strong"></span> same team
+      </span>
+      <span class="legend__item">
+        <span class="legend__swatch" data-strength="medium"></span> shared project
+      </span>
+      <span class="legend__item">
+        <span class="legend__swatch" data-strength="weak"></span> former colleague
+      </span>
+      <span class="legend__item">thicker line = stronger tie</span>
+    </div>
+
     <ol class="insiders">
       {% for insider in insiders %}
         <li>
-          <h2><a href="/people/{{ insider.person_id }}">{{ insider.name }}</a></h2>
-          <p>{{ insider.title }}</p>
+          <div class="row-head">
+            <div>
+              <h2><a href="/people/{{ insider.person_id }}">{{ insider.name }}</a></h2>
+              <p class="row-head__meta">{{ insider.title }} · {{ insider.route.hops }}
+                 hop{{ '' if insider.route.hops == 1 else 's' }} away</p>
+            </div>
+            {{ confidence_badge(insider.route.confidence) }}
+          </div>
           {% set route = insider.route %}
           {% include "_chain.html" %}
         </li>
@@ -20,7 +44,7 @@
   {% else %}
     {{ empty(
       "No route to anyone at " ~ company ~ " within " ~ max_hops ~ " hops.",
-      "Back to search", "/"
+      "Try another company", "/"
     ) }}
   {% endif %}
 {% endblock %}
