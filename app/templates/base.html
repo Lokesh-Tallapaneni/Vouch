@@ -7,7 +7,14 @@
   <meta name="description"
         content="Vouch — find your way in through the people who already know the way.">
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/static/css/vouch.css">
+  {# asset_url() appends a digest of the file's contents (see
+     app/web/templating.py). Static assets go out with max-age=3600 and no
+     revalidation, so without it a deployed CSS or JS fix stays invisible to
+     returning visitors for an hour. For the SRI-pinned script below it is
+     not merely cosmetic: after an upgrade a *cached* copy would fail the
+     *new* integrity hash and be blocked outright, so the page would lose
+     htmx entirely rather than run a stale copy. #}
+  <link rel="stylesheet" href="{{ asset_url('css/vouch.css') }}">
   {# htmx injects its own <style> for .htmx-indicator on load. Our CSP is
      `style-src 'self'` with no `unsafe-inline`, so the browser blocks it
      and logs a violation on every page. vouch.css defines those rules
@@ -25,7 +32,7 @@
        python -c "import hashlib,base64,pathlib; print('sha384-'+base64.b64encode(
          hashlib.sha384(pathlib.Path('app/static/js/htmx.min.js').read_bytes())
          .digest()).decode())" #}
-  <script src="/static/js/htmx.min.js"
+  <script src="{{ asset_url('js/htmx.min.js') }}"
           integrity="sha384-HGfztofotfshcF7+8n44JQL2oJmowVChPTg48S+jvZoztPfvwD79OC/LTtG6dMp+"
           defer></script>
   {# First-party, not vendored -- no integrity hash: unlike htmx.min.js this
@@ -33,13 +40,13 @@
      already is the trust boundary CSP's script-src 'self' enforces. Wires
      every htmx write request (starting with sign-out in _header.html) with
      the CSRF header CSRFMiddleware requires -- see the file itself. #}
-  <script src="/static/js/csrf.js" defer></script>
+  <script src="{{ asset_url('js/csrf.js') }}" defer></script>
   {# Same reasoning as csrf.js above: first-party, no integrity hash. Wires
      the "Copy" button under a route's intro-message disclosure
      (_intro_disclosure.html) -- navigator.clipboard needs no CSP
      exception, but the click handler itself must live in this file, not
      an inline attribute, for the same script-src 'self' reason. #}
-  <script src="/static/js/copy-intro.js" defer></script>
+  <script src="{{ asset_url('js/copy-intro.js') }}" defer></script>
   {% block head %}{% endblock %}
 </head>
 <body>
