@@ -8,7 +8,6 @@ user.
 
 from __future__ import annotations
 
-import re
 from datetime import datetime
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
@@ -16,12 +15,6 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 #: Below this, a passphrase is trivially brute-forced. Length beats character
 #: classes, so this is the only rule we impose.
 MIN_PASSWORD_LENGTH = 10
-
-#: Matches the fractional-seconds component of an ISO-8601 timestamp beyond
-#: six digits, capturing the first six so they can be kept and the rest
-#: discarded. Whatever follows (an offset like ``+00:00`` or a ``Z``) sits
-#: outside the match and is left untouched.
-_EXCESS_FRACTIONAL_SECONDS = re.compile(r"(\.\d{6})\d+")
 
 
 class AccountCreate(BaseModel):
@@ -50,23 +43,17 @@ class Credentials(BaseModel):
 
 
 class Account(BaseModel):
-    """A stored account. Never carries the password hash out of the db layer."""
+    """A stored account. Never carries the password hash out of the db layer.
+
+    ``created_at`` expects a native ``datetime``, not a driver temporal or a
+    Cypher string dump -- that coercion happens once, at the database boundary
+    in :mod:`app.db.client`, not here. See that module for why.
+    """
 
     id: str
     email: str
     person_id: str
     created_at: datetime
-
-    @field_validator("created_at", mode="before")
-    @classmethod
-    def _truncate_neo4j_nanosecond_precision(cls, value: object) -> object:
-        """Neo4j's ``toString()`` on a datetime emits 9-digit fractional
-        seconds; Python's ISO-8601 parser accepts at most 6. Without this,
-        every account read from the graph would fail validation.
-        """
-        if isinstance(value, str):
-            return _EXCESS_FRACTIONAL_SECONDS.sub(r"\1", value)
-        return value
 
 
 class SessionClaims(BaseModel):

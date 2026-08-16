@@ -91,6 +91,32 @@ MAX_TRANSACTION_RETRY_TIME_S = 15.0
 CONNECTION_TIMEOUT_S = 10.0
 
 
+def _to_python(value: Any) -> Any:
+    """Convert driver-native temporals to standard library types.
+
+    The neo4j driver returns its own DateTime/Date/Time classes, which carry
+    nanosecond precision Python cannot represent and which pydantic refuses.
+    Converting here rather than in a model keeps the driver's type hierarchy
+    from leaking above app/db, which is the one rule this layer exists to hold.
+
+    Note the alternative that does NOT work: CognoDB's toString() on a temporal
+    returns a struct dump like "{{2026 8 16} {13 19 42 769114387} 0}", and
+    epochMillis is not implemented -- so the native value is the only correct
+    thing to ask for.
+
+    Recurses through lists and dicts because query results nest freely --
+    ``collect(DISTINCT {company: ..., from_year: ...})`` puts a temporal inside
+    a map inside a list, and a shallow conversion would miss it.
+    """
+    if hasattr(value, "to_native"):
+        return value.to_native()
+    if isinstance(value, list):
+        return [_to_python(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _to_python(item) for key, item in value.items()}
+    return value
+
+
 def build_driver(settings: Settings) -> AsyncDriver:
     """Construct the driver and its pool.
 
@@ -249,7 +275,7 @@ class GraphClient:
             log.exception("query failed")
             raise
 
-        rows = [record.data() for record in result.records]
+        rows = [_to_python(record.data()) for record in result.records]
         self._log_query(cypher, started, len(rows))
         return rows
 
