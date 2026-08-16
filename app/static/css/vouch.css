@@ -50,18 +50,38 @@ body {
   min-width: 3rem; height: 0; border-top-style: solid;
   border-color: var(--muted); position: relative;
 }
+/* Band thresholds live in _chain.html's Jinja, not here, but the numbers are
+   calibrated against the seeded dataset's measured per-hop tie-strength
+   distribution -- do not "round them off" back to 0.6/0.35. Context predicts
+   strength almost perfectly: team edges cluster 0.73-0.83 (median 0.78),
+   project edges 0.48-0.58 (median 0.53), former-colleague edges 0.22-0.88
+   (median 0.29, with one deliberate 0.88 outlier -- the protagonist's
+   curated strong ex-colleague contact, which should and does render strong).
+   Bands sit between those clusters at strong >=0.70 / medium >=0.45 / weak
+   below, so connector thickness and the context label underneath it say the
+   same thing instead of competing. */
 .chain__link[data-strength="strong"] { border-top-width: 4px; border-color: var(--conf-strong); }
 .chain__link[data-strength="medium"] { border-top-width: 2px; border-color: var(--conf-medium); }
 .chain__link[data-strength="weak"]   { border-top-width: 1px; border-color: var(--conf-weak); }
 .chain__context {
   font-family: var(--font-mono); font-size: 0.7rem;
   color: var(--muted); position: absolute; top: 0.35rem; left: 0; white-space: nowrap;
+  /* Bounded and ellipsised rather than left to grow with the label: this box
+     is absolutely positioned and out of flow, so an unbounded long context
+     string would bleed into the next node's text instead of wrapping. The
+     full string is still reachable via chain__link's title attribute. */
+  max-width: 5rem; overflow: hidden; text-overflow: ellipsis;
 }
 
 /* The route-level score gets the same three-band treatment as a hop link, not
    just tabular digits -- otherwise the number is the only thing carrying the
    verdict, and "read the score" is exactly what a colour system exists to
-   avoid. Same thresholds as .chain__link so "strong" means one thing app-wide. */
+   avoid. Bands here are calibrated separately from .chain__link's, against
+   the measured route-confidence distribution across the eight companies
+   (0.20-0.88, five of eight clustering 0.37-0.46): strong >=0.60, medium
+   >=0.40, weak below. Confidence multiplies tie strength along a whole
+   chain, so its distribution is not the per-hop one -- same "strong"
+   concept, deliberately different scale. */
 .confidence { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .confidence[data-strength="strong"] { color: var(--conf-strong); }
 .confidence[data-strength="medium"] { color: var(--conf-medium); }

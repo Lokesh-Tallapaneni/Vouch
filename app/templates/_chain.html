@@ -9,22 +9,28 @@
    and .chain's flex-wrap (see vouch.css) keeps a long chain from overflowing
    rather than needing hop-count-specific markup. #}
 <div class="chain" role="group" aria-label="Introduction route">
+  {# Per-hop strength bands (0.70 / 0.45) are calibrated against the seeded
+     dataset's measured tie-strength distribution, not chosen for round
+     numbers -- see the comment above .chain__link[data-strength] in
+     vouch.css for the team/project/former-colleague medians behind them. #}
   {% for hop in route.hop_details %}
     {% if loop.first %}<span class="chain__node">{{ hop.from_name }}</span>{% endif %}
     <span class="chain__link"
-          data-strength="{{ 'strong' if hop.strength >= 0.6 else 'medium' if hop.strength >= 0.35 else 'weak' }}"
+          data-strength="{{ 'strong' if hop.strength >= 0.7 else 'medium' if hop.strength >= 0.45 else 'weak' }}"
           title="{{ hop.context }} · strength {{ '%.2f'|format(hop.strength) }}">
       <span class="chain__context">{{ hop.context }}</span>
     </span>
     <span class="chain__node">{{ hop.to_name }}</span>
   {% endfor %}
-  {# The aggregate score gets the same three-band colour as a hop link (see
-     .confidence[data-strength] in vouch.css) -- otherwise the number is the
-     only thing carrying the verdict, and a reader has to read it to know
-     whether a route is strong. Same 0.6 / 0.35 thresholds as the per-hop
-     bands above, so "strong" means the same thing everywhere in the app. #}
+  {# The aggregate score gets the same three-band colour treatment as a hop
+     link (see .confidence[data-strength] in vouch.css), but NOT the same
+     thresholds: per-hop strength and route confidence are measured on
+     different distributions (confidence multiplies strength along a whole
+     chain), so each is calibrated against its own measured data -- see the
+     comment above .confidence[data-strength] in vouch.css for the numbers
+     behind 0.60 / 0.40 here. #}
   <span class="confidence"
-        data-strength="{{ 'strong' if route.confidence >= 0.6 else 'medium' if route.confidence >= 0.35 else 'weak' }}">
+        data-strength="{{ 'strong' if route.confidence >= 0.6 else 'medium' if route.confidence >= 0.4 else 'weak' }}">
     {{ '%.2f'|format(route.confidence) }}
   </span>
 </div>
