@@ -16,7 +16,16 @@ Route surface:
 
 from __future__ import annotations
 
-from veloce import LoggingMiddleware, RequestIDMiddleware, Veloce
+from veloce import (
+    CSPMiddleware,
+    CSRFMiddleware,
+    LoggingMiddleware,
+    RateLimitMiddleware,
+    RequestIDMiddleware,
+    SecurityHeadersMiddleware,
+    SlidingWindow,
+    Veloce,
+)
 
 from app.api import health
 from app.api.errors import register_exception_handlers
@@ -58,6 +67,49 @@ def create_app() -> Veloce:
     # request.state.request_id itself.
     app.add_middleware(RequestIDMiddleware)
     app.add_middleware(LoggingMiddleware)
+
+    app.add_middleware(SecurityHeadersMiddleware)
+    # htmx is vendored locally at app/static/js/htmx.min.js rather than pulled
+    # from a CDN, so no external host needs to appear in the policy -- a CDN
+    # entry here would be a trust dependency bought for nothing when the
+    # alternative is one file in static/. CSPMiddleware takes a directive
+    # mapping via `policy=`, not the `default_src=`/`script_src=` kwargs an
+    # earlier draft of this task assumed -- checked with
+    # `inspect.signature(CSPMiddleware.__init__)` rather than guessed.
+    app.add_middleware(
+        CSPMiddleware,
+        policy={
+            "default-src": "'self'",
+            "script-src": "'self'",
+            "style-src": "'self'",
+            "img-src": ["'self'", "data:"],
+        },
+    )
+    # Protects the write routes. An earlier design doc argued no CSRF was
+    # needed because every route was read-only; profile editing
+    # (PATCH /api/v1/people/me) removed that premise. Defaults match how the
+    # session cookie itself is already set in app.api.v1.auth (Secure,
+    # SameSite=Lax) -- httponly stays False here specifically, since the
+    # double-submit pattern requires client-side script to read the cookie
+    # and echo it back in the X-CSRF-Token header.
+    app.add_middleware(CSRFMiddleware)
+    # A generous site-wide floor (an abuse/DoS backstop, not a throttle
+    # anyone should hit in normal use) plus a tight override on sign-in
+    # specifically -- the one endpoint where unlimited attempts are worth
+    # something to an attacker (credential stuffing, brute force). An
+    # `overrides` key is the *full* route template including the blueprint
+    # prefix (RateLimitMiddleware's own docstring), hence
+    # `v1.API_V1_PREFIX` rather than the bare "/auth/login" the route
+    # decorator itself is written with. `RateLimitMiddleware(limit=20, ...)`
+    # -- what an earlier draft of this task called for -- isn't this
+    # constructor's signature either: it takes `max_requests`, and neither
+    # form scopes to one route on its own, which is why this uses `strategy=`
+    # / `overrides=` instead of the bare `max_requests=` shortcut.
+    app.add_middleware(
+        RateLimitMiddleware,
+        strategy=SlidingWindow(limit=300, window=60),
+        overrides={f"{v1.API_V1_PREFIX}/auth/login": SlidingWindow(limit=20, window=60)},
+    )
 
     return app
 

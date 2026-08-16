@@ -11,6 +11,19 @@ from tests.support.fake_graph import FakeGraph
 PASSWORD = "correct horse battery"
 
 
+def _csrf(client: TestClient) -> dict[str, str]:
+    """A header dict carrying the CSRF token CSRFMiddleware already issued.
+
+    Task 17 installed CSRFMiddleware sitewide (double-submit-cookie, see
+    app.main), which unsafe-method routes never needed a token for before --
+    every write test in this file now needs to echo one, or it never reaches
+    the handler it means to exercise. Requires the client to have made at
+    least one prior request (any safe method mints the cookie); every caller
+    here relies on ``client_and_graph``'s own priming GET for that.
+    """
+    return {"x-csrf-token": client.cookies["csrf_token"]}
+
+
 @pytest.fixture
 def client_and_graph() -> tuple[TestClient, FakeGraph]:
     graph = FakeGraph(
@@ -41,6 +54,7 @@ def client_and_graph() -> tuple[TestClient, FakeGraph]:
     app = create_app()
     app.dependency_overrides[get_graph] = lambda: graph
     with TestClient(app) as client:
+        client.get("/health")  # primes the CSRF cookie every write test below echoes
         yield client, graph
     app.dependency_overrides.clear()
 
@@ -60,7 +74,9 @@ def _with_login_row(graph: FakeGraph) -> None:
 def test_login_with_valid_credentials_sets_an_httponly_cookie(client_and_graph) -> None:
     client, graph = client_and_graph
     _with_login_row(graph)
-    response = client.post("/api/v1/auth/login", json={"email": "a@b.com", "password": PASSWORD})
+    response = client.post(
+        "/api/v1/auth/login", json={"email": "a@b.com", "password": PASSWORD}, headers=_csrf(client)
+    )
     assert response.status_code == 200
     cookie = response.headers["set-cookie"]
     assert SESSION_COOKIE_NAME in cookie
@@ -73,7 +89,9 @@ def test_the_session_cookie_carries_every_flag_the_browser_needs(client_and_grap
     # argument" and "the browser will honour it".
     client, graph = client_and_graph
     _with_login_row(graph)
-    response = client.post("/api/v1/auth/login", json={"email": "a@b.com", "password": PASSWORD})
+    response = client.post(
+        "/api/v1/auth/login", json={"email": "a@b.com", "password": PASSWORD}, headers=_csrf(client)
+    )
     cookie = response.headers["set-cookie"]
     assert f"{SESSION_COOKIE_NAME}=" in cookie
     assert "HttpOnly" in cookie
@@ -85,7 +103,9 @@ def test_the_session_cookie_carries_every_flag_the_browser_needs(client_and_grap
 def test_login_with_a_wrong_password_returns_401_and_sets_no_cookie(client_and_graph) -> None:
     client, graph = client_and_graph
     _with_login_row(graph)
-    response = client.post("/api/v1/auth/login", json={"email": "a@b.com", "password": "wrong"})
+    response = client.post(
+        "/api/v1/auth/login", json={"email": "a@b.com", "password": "wrong"}, headers=_csrf(client)
+    )
     assert response.status_code == 401
     assert "set-cookie" not in response.headers
 
@@ -99,10 +119,12 @@ def test_login_with_an_unknown_email_returns_the_identical_response_as_a_wrong_p
     client, graph = client_and_graph
     _with_login_row(graph)
     wrong_password = client.post(
-        "/api/v1/auth/login", json={"email": "a@b.com", "password": "wrong"}
+        "/api/v1/auth/login", json={"email": "a@b.com", "password": "wrong"}, headers=_csrf(client)
     )
     unknown_email = client.post(
-        "/api/v1/auth/login", json={"email": "nobody@b.com", "password": "whatever"}
+        "/api/v1/auth/login",
+        json={"email": "nobody@b.com", "password": "whatever"},
+        headers=_csrf(client),
     )
     assert wrong_password.status_code == unknown_email.status_code == 401
     assert wrong_password.json() == unknown_email.json()
@@ -111,7 +133,9 @@ def test_login_with_an_unknown_email_returns_the_identical_response_as_a_wrong_p
 def test_login_response_never_contains_the_password_hash(client_and_graph) -> None:
     client, graph = client_and_graph
     _with_login_row(graph)
-    body = client.post("/api/v1/auth/login", json={"email": "a@b.com", "password": PASSWORD}).text
+    body = client.post(
+        "/api/v1/auth/login", json={"email": "a@b.com", "password": PASSWORD}, headers=_csrf(client)
+    ).text
     assert "password_hash" not in body and "$" not in body
 
 
@@ -128,7 +152,7 @@ def test_a_garbage_cookie_is_treated_as_signed_out_not_an_error(client_and_graph
 
 def test_logout_clears_the_cookie(client_and_graph) -> None:
     client, _ = client_and_graph
-    response = client.post("/api/v1/auth/logout")
+    response = client.post("/api/v1/auth/logout", headers=_csrf(client))
     assert response.status_code == 204
     assert SESSION_COOKIE_NAME in response.headers.get("set-cookie", "")
 
@@ -141,7 +165,7 @@ def test_logout_clears_the_cookie_with_the_same_flags_it_was_set_with(client_and
     # proves the deletion can actually take effect, not just that a
     # Set-Cookie header with the right name was sent.
     client, _ = client_and_graph
-    response = client.post("/api/v1/auth/logout")
+    response = client.post("/api/v1/auth/logout", headers=_csrf(client))
     cookie = response.headers["set-cookie"]
     assert f"{SESSION_COOKIE_NAME}=" in cookie
     assert "Max-Age=0" in cookie
@@ -154,7 +178,9 @@ def test_logout_clears_the_cookie_with_the_same_flags_it_was_set_with(client_and
 def test_register_rejects_a_weak_password(client_and_graph) -> None:
     client, _ = client_and_graph
     response = client.post(
-        "/api/v1/auth/register", json={"email": "a@b.com", "password": "short", "person_id": "me"}
+        "/api/v1/auth/register",
+        json={"email": "a@b.com", "password": "short", "person_id": "me"},
+        headers=_csrf(client),
     )
     assert response.status_code == 422
 
@@ -164,6 +190,7 @@ def test_register_creates_an_account_and_signs_it_in(client_and_graph) -> None:
     response = client.post(
         "/api/v1/auth/register",
         json={"email": "a@b.com", "password": PASSWORD, "person_id": "me"},
+        headers=_csrf(client),
     )
     assert response.status_code == 201
     assert response.json()["email"] == "a@b.com"
@@ -196,7 +223,10 @@ def test_require_account_rejects_an_unauthenticated_write() -> None:
     app = create_app()
     app.include_router(probe_router)
     with TestClient(app) as client:
-        response = client.post("/test-only/write")
+        client.get("/health")  # primes the CSRF cookie -- this test is about
+        # RequiredAccount's 401, not CSRF's 403, so it has to clear that check
+        # first to reach the dependency it means to exercise.
+        response = client.post("/test-only/write", headers=_csrf(client))
     assert response.status_code == 401
     # Field-by-field, not exact-dict equality: the error envelope grew a
     # `reference` (the request id, see app.api.errors) after this test was
