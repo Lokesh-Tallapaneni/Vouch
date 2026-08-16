@@ -5,6 +5,11 @@ from collections import defaultdict
 from app.models.snapshot import NetworkSnapshot
 from scripts.generate import PROTAGONIST_ID, build_network, validate_snapshot
 
+#: Matches ``PATH_FINDER_DEFAULT_MAX_HOPS`` in ``scripts.generate`` -- not
+#: imported, so a change to that constant has to be a deliberate edit in both
+#: places, not something that silently drags these tests along with it.
+DEFAULT_MAX_HOPS = 4
+
 
 def _bfs_distances_from_protagonist(snapshot: NetworkSnapshot) -> dict[str, int]:
     """Shared BFS helper for the distance-property tests below.
@@ -48,6 +53,42 @@ def _company_nearest_distance(
     return nearest
 
 
+def _best_route_confidence_by_company(snapshot: NetworkSnapshot, max_hops: int) -> dict[str, float]:
+    """Highest confidence (product of tie strengths) route from the
+    protagonist to any current employee of each company, within ``max_hops``.
+
+    A second, independent implementation of the DP in
+    ``scripts.generate._best_route_confidence`` -- duplicated rather than
+    imported, for the same reason ``_bfs_distances_from_protagonist`` is: a
+    bug in the real implementation should not also be baked into the thing
+    checking it.
+    """
+    adjacency: dict[str, list[tuple[str, float]]] = defaultdict(list)
+    for edge in snapshot.acquaintances:
+        adjacency[edge.from_id].append((edge.to_id, edge.strength))
+        adjacency[edge.to_id].append((edge.from_id, edge.strength))
+
+    best: dict[str, float] = {PROTAGONIST_ID: 1.0}
+    for _ in range(max_hops):
+        for node, confidence in list(best.items()):
+            for neighbour, strength in adjacency[node]:
+                candidate = confidence * strength
+                if candidate > best.get(neighbour, 0.0):
+                    best[neighbour] = candidate
+
+    current = {e.person_id: e.company for e in snapshot.employments if e.is_current}
+    by_company: dict[str, float] = {}
+    for person_id, confidence in best.items():
+        if person_id == PROTAGONIST_ID:
+            continue
+        company = current.get(person_id)
+        if company is None:
+            continue
+        if company not in by_company or confidence > by_company[company]:
+            by_company[company] = confidence
+    return by_company
+
+
 def test_generation_is_deterministic_for_a_fixed_seed() -> None:
     assert build_network(seed=42).model_dump() == build_network(seed=42).model_dump()
 
@@ -69,9 +110,25 @@ def test_the_protagonist_exists_and_has_a_modest_network() -> None:
     assert 4 <= degree <= 10, f"protagonist degree {degree} is not demo-friendly"
 
 
-def test_protagonist_neighbours_span_at_most_two_companies() -> None:
-    # If the protagonist already knows someone at nearly every company, the
-    # "reach into a target company" demo has nothing left to demonstrate.
+def test_protagonist_has_a_previous_employer() -> None:
+    # This is the demo's own narrative hook -- "someone who left Acme two
+    # years ago is your route into Acme" -- so it has to hold at the
+    # committed seed, not depend on the 30% dice roll everyone else gets.
+    snapshot = build_network()
+    previous = [
+        record
+        for record in snapshot.employments
+        if record.person_id == PROTAGONIST_ID and not record.is_current
+    ]
+    assert len(previous) >= 1, "protagonist has no employment history"
+
+
+def test_protagonist_neighbours_span_at_most_three_companies() -> None:
+    # Relaxed from 2 to 3 in the fix-round-2 pass: the protagonist's own
+    # company plus their previous employer already accounts for 2, and that
+    # previous-employer door is the whole point -- without room for it, the
+    # narrative hook from test_protagonist_has_a_previous_employer above
+    # would have nowhere to attach.
     snapshot = build_network()
     current = {e.person_id: e.company for e in snapshot.employments if e.is_current}
     neighbours = {
@@ -80,7 +137,7 @@ def test_protagonist_neighbours_span_at_most_two_companies() -> None:
         if PROTAGONIST_ID in (edge.from_id, edge.to_id)
     }
     companies = {current[n] for n in neighbours if n in current}
-    assert len(companies) <= 2, f"protagonist's neighbours span {len(companies)} companies"
+    assert len(companies) <= 3, f"protagonist's neighbours span {len(companies)} companies"
 
 
 def test_no_person_is_isolated() -> None:
@@ -114,31 +171,26 @@ def test_most_edges_are_intra_company() -> None:
     assert intra / len(edges) >= 0.60, f"only {intra}/{len(edges)} edges are intra-company"
 
 
-def test_multiple_companies_are_more_than_one_hop_from_the_protagonist() -> None:
-    # This is the test that would have caught the original bug: 7 of 8
-    # companies were one hop away, so the multi-hop path-finder -- the entire
-    # graph-database argument -- was never exercised.
+def test_some_companies_sit_at_a_middle_distance() -> None:
+    # Fix-round-1 bug: 7 of 8 companies were one hop away (bimodal: trivially
+    # close or nothing). Fix-round-2 overshot the correction: every non-native
+    # company sat at *exactly* 4 hops (bimodal again, just the other way).
+    # This is the test that would have caught round 2's overshoot: a real
+    # topology has companies at every distance in between, not just the
+    # extremes.
     snapshot = build_network()
     distance = _bfs_distances_from_protagonist(snapshot)
     nearest = _company_nearest_distance(snapshot, distance)
-    far = [company for company, hops in nearest.items() if hops >= 2]
-    assert len(far) >= 3, f"only {len(far)} companies are >=2 hops from the protagonist"
+    middle = [company for company, hops in nearest.items() if hops in (2, 3)]
+    assert len(middle) >= 2, f"only {len(middle)} companies are 2-3 hops away (seen: {nearest})"
 
 
-def test_at_least_one_company_requires_a_multi_hop_path() -> None:
+def test_at_least_one_company_requires_four_or_more_hops() -> None:
     snapshot = build_network()
     distance = _bfs_distances_from_protagonist(snapshot)
     nearest = _company_nearest_distance(snapshot, distance)
-    very_far = [company for company, hops in nearest.items() if hops >= 3]
-    assert len(very_far) >= 1, "no company requires >=3 hops; the *1..5 traversal is decoration"
-
-
-def test_not_everyone_is_within_three_hops_of_the_protagonist() -> None:
-    snapshot = build_network()
-    distance = _bfs_distances_from_protagonist(snapshot)
-    all_ids = {p.id for p in snapshot.people}
-    within_three = {pid for pid, hops in distance.items() if hops <= 3}
-    assert within_three != all_ids, "everyone is within 3 hops; the graph has no real diameter"
+    far = [company for company, hops in nearest.items() if hops >= 4]
+    assert len(far) >= 1, "no company requires >=4 hops; the *1..5 traversal is decoration"
 
 
 def test_every_company_has_someone_reachable_within_five_hops() -> None:
@@ -148,6 +200,48 @@ def test_every_company_has_someone_reachable_within_five_hops() -> None:
     companies = {c.name for c in snapshot.companies}
     unreachable = companies - {company for company, hops in nearest.items() if hops <= 5}
     assert unreachable == set(), f"companies with no one reachable in 5 hops: {unreachable}"
+
+
+def test_every_company_has_at_least_three_insiders_within_default_hops() -> None:
+    # A company page with one or two rows at the default hop limit doesn't
+    # look like a product -- this is what fix-round-2's thin pages looked
+    # like (some companies had exactly 1 or 2 people reachable at 4 hops).
+    snapshot = build_network()
+    distance = _bfs_distances_from_protagonist(snapshot)
+    current = {e.person_id: e.company for e in snapshot.employments if e.is_current}
+    insiders: dict[str, int] = defaultdict(int)
+    for person_id, company in current.items():
+        if person_id == PROTAGONIST_ID:
+            continue
+        hops = distance.get(person_id)
+        if hops is not None and hops <= DEFAULT_MAX_HOPS:
+            insiders[company] += 1
+    companies = {c.name for c in snapshot.companies}
+    thin = {c for c in companies if insiders.get(c, 0) < 3}
+    assert not thin, (
+        f"companies with fewer than 3 people reachable in {DEFAULT_MAX_HOPS} hops: {thin}"
+    )
+
+
+def test_best_route_confidence_spans_at_least_two_x_across_companies() -> None:
+    # The application's central claim is that route *quality* varies -- a
+    # short path through a strong tie should outrank a long path through weak
+    # ones. Fix-round-2 had every non-native company at 4 hops with
+    # near-identical confidence (0.15-0.18): technically reachable, nothing to
+    # rank. This is the test that would have caught it.
+    snapshot = build_network()
+    by_company = _best_route_confidence_by_company(snapshot, DEFAULT_MAX_HOPS)
+    current = {e.person_id: e.company for e in snapshot.employments if e.is_current}
+    own_company = current[PROTAGONIST_ID]
+    other = [confidence for company, confidence in by_company.items() if company != own_company]
+    assert len(other) >= 2, (
+        f"only {len(other)} other companies have a route within {DEFAULT_MAX_HOPS} hops"
+    )
+    spread = max(other) / min(other)
+    assert spread >= 2.0, (
+        f"confidence spread is only {spread:.2f}x (lowest {min(other):.3f}, "
+        f"highest {max(other):.3f}); every route looks about equally good"
+    )
 
 
 def test_validate_accepts_a_generated_snapshot() -> None:

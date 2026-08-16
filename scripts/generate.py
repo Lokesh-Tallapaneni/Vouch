@@ -29,6 +29,7 @@ import argparse
 import itertools
 import json
 import random
+from collections import defaultdict
 from pathlib import Path
 
 from app.models.snapshot import (
@@ -74,26 +75,44 @@ P_PROJECT_EDGE = 0.008
 #: Layer 3: random cross-company sampling attempts. This is deliberately a
 #: small fraction of the population -- these are the long-range weak ties that
 #: make any short path exist between distant parts of the graph, and "sparse"
-#: only means something if the count stays small. Raising this closes the
-#: distance between companies faster than intended (verified by simulation).
-FORMER_COLLEAGUE_SAMPLE_ATTEMPTS = 25
+#: only means something if the count stays small. Tuned down from an earlier
+#: pass that made *every* company reachable within 3 hops -- with the
+#: protagonist's own cross-company door now guaranteed (see
+#: ``_ensure_protagonist_previous_employer``), the general layers only need to
+#: supply the *rest* of the spread: some companies at a middling 2-3 hops, at
+#: least one held out past 4, each retaining a real path-finder result.
+FORMER_COLLEAGUE_SAMPLE_ATTEMPTS = 10
 
 #: Layer 4: a handful of people who deliberately bridge a few teams, so "who
 #: connects unrelated parts of the org" has a real answer -- but few enough
 #: that they do not become a shortcut between every pair of companies.
-BROKER_COUNT = 3
-BROKER_LINKS = 2
+BROKER_COUNT = 2
+BROKER_LINKS = 1
 
 #: The protagonist is hand-curated (layer 5), not run through the general random
 #: layers, so their network stays small and interpretable: a handful of
-#: teammates plus, if they have one, a couple of contacts at their previous
-#: employer. That is the entire "reach into one other company" story the demo
-#: opens on -- if they already knew someone everywhere there would be nothing
-#: left to demonstrate.
+#: teammates plus a couple of contacts at their previous employer -- their
+#: employment history is guaranteed (see ``_ensure_protagonist_previous_employer``),
+#: not left to the 30% dice roll everyone else gets, because it is the demo's
+#: own narrative hook: "someone who left Acme two years ago is your route into
+#: Acme" has to hold at the committed seed.
 PROTAGONIST_TEAM_LINKS = (4, 6)
-PROTAGONIST_FORMER_COLLEAGUE_LINKS = (1, 2)
 PROTAGONIST_MIN_DEGREE = 4
 PROTAGONIST_MAX_DEGREE = 10
+
+#: How many contacts the protagonist keeps at their previous employer, and at
+#: what strength. Explicit and deliberately varied -- one strong, one
+#: middling, optionally one weak -- rather than drawn from ``_tie_strength``,
+#: so the best-route confidence into this company is visibly higher than into
+#: a company with no shared history. That gap is what makes "ranked by
+#: confidence" mean something instead of a column of near-identical numbers.
+PROTAGONIST_FORMER_COLLEAGUE_COUNTS = (2, 3)
+PROTAGONIST_FORMER_COLLEAGUE_STRENGTHS = (0.88, 0.5, 0.32)
+
+#: How many companies the protagonist's *direct* neighbours may span: their
+#: own plus their previous employer. Kept tight -- a wider spread here is what
+#: caused the original bug (nearly every company one hop away).
+PROTAGONIST_MAX_NEIGHBOUR_COMPANIES = 3
 
 COMPANIES = [
     ("Aeromark", "logistics"),
@@ -361,6 +380,42 @@ def _assign_employment(
     return employments, current_company
 
 
+def _ensure_protagonist_previous_employer(
+    rng: random.Random, employments: list[EmploymentSeed], current_company: dict[str, str]
+) -> str:
+    """Guarantee the protagonist has a previous employer, deterministically.
+
+    Everyone else's employment history is a 30% dice roll (see
+    ``_assign_employment``), which is fine for a population statistic but not
+    for the one person the demo is written around: "someone who left Acme two
+    years ago is your route into Acme" is the narrative the app opens on, and
+    it must hold at the committed seed rather than depend on how the RNG
+    happened to land. If the roll already gave the protagonist a previous
+    employer, that stands; only a missing one is synthesized.
+    """
+    for record in employments:
+        if record.person_id == PROTAGONIST_ID and not record.is_current:
+            return record.company
+
+    names = [name for name, _ in COMPANIES]
+    current_index, current_record = next(
+        (i, r) for i, r in enumerate(employments) if r.person_id == PROTAGONIST_ID and r.is_current
+    )
+    previous = rng.choice([n for n in names if n != current_record.company])
+    left = current_record.from_year - rng.randint(1, 2)
+    employments.insert(
+        current_index + 1,
+        EmploymentSeed(
+            person_id=PROTAGONIST_ID,
+            company=previous,
+            from_year=left - rng.randint(1, 4),
+            to_year=left,
+            is_current=False,
+        ),
+    )
+    return previous
+
+
 def _assign_teams(
     rng: random.Random, people: list[PersonSeed], current_company: dict[str, str]
 ) -> dict[str, str]:
@@ -428,24 +483,25 @@ def _curate_protagonist(
 def _curate_protagonist_former_colleagues(
     rng: random.Random,
     *,
-    previous_company: str | None,
+    previous_company: str,
     current_company: dict[str, str],
     people_ids: list[str],
     link: _Linker,
     existing_degree: int,
 ) -> None:
-    """The protagonist's single deliberate door into another company.
+    """The protagonist's deliberate doorway into their previous employer.
 
-    Capped so it never pushes the protagonist past ``PROTAGONIST_MAX_DEGREE``
-    or introduces a third company into their neighbourhood -- see the module
-    docstring on why that boundary matters.
+    Strengths are explicit and deliberately varied (see
+    ``PROTAGONIST_FORMER_COLLEAGUE_STRENGTHS``), not drawn from
+    ``_tie_strength``, so the best route into this company reads as
+    meaningfully more confident than a route into a company the protagonist
+    has no history with. Capped so it never pushes the protagonist past
+    ``PROTAGONIST_MAX_DEGREE`` or introduces a third company into their
+    neighbourhood -- see the module docstring on why that boundary matters.
     """
-    if previous_company is None:
-        return
     room = PROTAGONIST_MAX_DEGREE - existing_degree
     if room <= 0:
         return
-    low, high = PROTAGONIST_FORMER_COLLEAGUE_LINKS
     candidates = [
         pid
         for pid in people_ids
@@ -453,14 +509,13 @@ def _curate_protagonist_former_colleagues(
     ]
     if not candidates:
         return
+    low, high = PROTAGONIST_FORMER_COLLEAGUE_COUNTS
     count = min(rng.randint(low, high), len(candidates), room)
-    for contact in rng.sample(candidates, count):
-        link(
-            PROTAGONIST_ID,
-            contact,
-            "former-colleague",
-            _tie_strength(rng, same_team=False, shared_projects=0, overlap_years=1),
-        )
+    contacts = rng.sample(candidates, count)
+    for contact, strength in zip(
+        contacts, PROTAGONIST_FORMER_COLLEAGUE_STRENGTHS[:count], strict=True
+    ):
+        link(PROTAGONIST_ID, contact, "former-colleague", strength)
 
 
 class _Linker:
@@ -508,6 +563,7 @@ def build_network(seed: int = 42) -> NetworkSnapshot:
 
     people = _build_people(rng)
     employments, current_company = _assign_employment(rng, people)
+    protagonist_previous = _ensure_protagonist_previous_employer(rng, employments, current_company)
     team_of = _assign_teams(rng, people, current_company)
     memberships = [MembershipSeed(person_id=pid, team=team) for pid, team in team_of.items()]
 
@@ -597,14 +653,6 @@ def build_network(seed: int = 42) -> NetworkSnapshot:
 
     # 5. The protagonist: hand-curated, not drawn from the layers above. See
     #    ``_curate_protagonist`` for why.
-    protagonist_previous = next(
-        (
-            record.company
-            for record in employments
-            if record.person_id == PROTAGONIST_ID and not record.is_current
-        ),
-        None,
-    )
     _curate_protagonist(
         rng,
         team_mates=by_team[team_of[PROTAGONIST_ID]],
@@ -667,20 +715,76 @@ def build_network(seed: int = 42) -> NetworkSnapshot:
     )
 
 
+#: The hop limit the default company page traverses at. Two assertions below
+#: (insiders-per-company, confidence spread) are evaluated at exactly this
+#: bound because it is what an evaluator actually sees, not an abstract
+#: "eventually reachable" -- a company can be technically reachable within 5
+#: hops (a different, looser assertion below) and still render an empty page
+#: at the default depth.
+PATH_FINDER_DEFAULT_MAX_HOPS = 4
+
+
+def _strength_adjacency(snapshot: NetworkSnapshot) -> dict[str, list[tuple[str, float]]]:
+    """Undirected adjacency carrying tie strength, for confidence routing."""
+    adjacency: dict[str, list[tuple[str, float]]] = defaultdict(list)
+    for edge in snapshot.acquaintances:
+        adjacency[edge.from_id].append((edge.to_id, edge.strength))
+        adjacency[edge.to_id].append((edge.from_id, edge.strength))
+    return adjacency
+
+
+def _best_route_confidence(
+    adjacency: dict[str, list[tuple[str, float]]], start: str, max_hops: int
+) -> dict[str, tuple[float, int]]:
+    """Highest-confidence route from ``start`` to every node reachable within
+    ``max_hops``, where confidence is the product of tie strengths along the
+    path -- a chain of independent probabilities, the same model the
+    application's path-finder ranks routes by. Returns
+    ``{node: (confidence, hops)}``, ``hops`` being the fewest hops needed to
+    achieve that confidence (a short strong path beats a long strong one).
+
+    Implemented as bounded-hop relaxation: ``layers[h]`` holds the best
+    confidence reachable using *at most* ``h`` edges, so it is monotonically
+    non-decreasing in ``h`` and the DP is exact for the hop bound, unlike a
+    plain BFS shortest-path which would ignore stronger longer routes.
+    """
+    layers: list[dict[str, float]] = [{start: 1.0}]
+    for _ in range(max_hops):
+        previous = layers[-1]
+        layer = dict(previous)
+        for node, confidence in previous.items():
+            for neighbour, strength in adjacency[node]:
+                candidate = confidence * strength
+                if candidate > layer.get(neighbour, 0.0):
+                    layer[neighbour] = candidate
+        layers.append(layer)
+
+    final = layers[-1]
+    routes: dict[str, tuple[float, int]] = {}
+    for node, confidence in final.items():
+        if node == start:
+            continue
+        hops = next(h for h, layer in enumerate(layers) if layer.get(node, 0.0) >= confidence)
+        routes[node] = (confidence, hops)
+    return routes
+
+
 def validate_snapshot(snapshot: NetworkSnapshot) -> None:
     """Fail generation rather than discover a dead demo at hour ten.
 
-    Every assertion here failed silently against the previous topology (flat,
-    company-agnostic teams made 87% of edges cross-company and put 7 of 8
-    companies one hop from the protagonist) while the old, weaker assertions
-    passed. These are deliberately about *distance* and *composition*, not
-    just reachability -- a graph that is too well connected satisfies
-    "reachable within N hops" just as easily as a well-shaped one, which is
-    exactly how the bug got past review the first time.
+    Round 1's only distance-related assertion (">=3 companies reachable
+    within 4 hops") passed on a graph where 7 of 8 companies were *one* hop
+    away -- reachability doesn't distinguish "trivially close" from "properly
+    distant". Round 2 fixed the collapse but overshot: cross-company reach
+    became so sparse that every non-native company sat at exactly 4 hops with
+    near-identical low confidence, so there was nothing for "ranked by route
+    quality" to rank. These assertions pin a *spread* -- some companies close,
+    some far, confidence visibly different -- because that spread is the
+    thing route-ranking exists to demonstrate.
 
     Raises:
         AssertionError: if the topology would make the demo queries boring,
-            empty, or trivially easy (i.e. answerable in one hop).
+            empty, thin, or make every route look equally (un)confident.
     """
     ids = {person.id for person in snapshot.people}
     edges = snapshot.acquaintances
@@ -721,23 +825,22 @@ def validate_snapshot(snapshot: NetworkSnapshot) -> None:
 
     companies = {c.name for c in snapshot.companies}
 
-    at_least_two_hops = [c for c, d in company_nearest.items() if d >= 2]
-    assert len(at_least_two_hops) >= 3, (
-        f"only {len(at_least_two_hops)} companies are >=2 hops from the protagonist; "
-        "a direct connection into almost every company means the multi-hop "
-        "path-finder is never actually exercised"
+    # The middle distances: companies that are neither trivially close (0-1
+    # hops -- the protagonist's own employer and their curated previous one)
+    # nor stuck at the far edge. Without this band, "ranked by distance" has
+    # nothing to rank between "here" and "as far as possible".
+    middle_distance = [c for c, d in company_nearest.items() if d in (2, 3)]
+    assert len(middle_distance) >= 2, (
+        f"only {len(middle_distance)} companies are 2-3 hops from the protagonist "
+        f"(distances seen: {company_nearest}); the graph is bimodal -- trivially "
+        "close or maximally far, nothing in between -- so there is no real spread "
+        "for a distance-based ranking to show"
     )
 
-    at_least_three_hops = [c for c, d in company_nearest.items() if d >= 3]
-    assert len(at_least_three_hops) >= 1, (
-        "no company requires >=3 hops to reach from the protagonist; "
+    genuinely_far = [c for c, d in company_nearest.items() if d >= 4]
+    assert len(genuinely_far) >= 1, (
+        "no company requires >=4 hops to reach from the protagonist; "
         "the *1..5 traversal bound in the Cypher query would be decoration"
-    )
-
-    within_three_hops = {pid for pid, d in distance.items() if d <= 3}
-    assert within_three_hops != ids, (
-        "every person is within 3 hops of the protagonist; the graph has no "
-        "real diameter, so distance-based ranking has nothing to rank"
     )
 
     protagonist_degree = len(adjacency[PROTAGONIST_ID])
@@ -749,10 +852,59 @@ def validate_snapshot(snapshot: NetworkSnapshot) -> None:
     protagonist_companies = {
         current[neighbour] for neighbour in adjacency[PROTAGONIST_ID] if neighbour in current
     }
-    assert len(protagonist_companies) <= 2, (
+    assert len(protagonist_companies) <= PROTAGONIST_MAX_NEIGHBOUR_COMPANIES, (
         f"the protagonist's direct neighbours span {len(protagonist_companies)} "
-        "companies; if they already know someone everywhere there is nothing "
-        "left for the demo to demonstrate"
+        f"companies (limit {PROTAGONIST_MAX_NEIGHBOUR_COMPANIES}); if they already "
+        "know someone almost everywhere there is nothing left for the demo to "
+        "demonstrate"
+    )
+
+    # At the default page depth, every company needs enough people to look
+    # like a real page -- one or two rows reads as broken, not sparse.
+    insiders_within_default_hops: dict[str, int] = defaultdict(int)
+    for person_id, company in current.items():
+        if person_id == PROTAGONIST_ID:
+            continue
+        person_distance = distance.get(person_id)
+        if person_distance is not None and person_distance <= PATH_FINDER_DEFAULT_MAX_HOPS:
+            insiders_within_default_hops[company] += 1
+    thin_companies = {c for c in companies if insiders_within_default_hops.get(c, 0) < 3}
+    assert not thin_companies, (
+        f"companies with fewer than 3 people reachable within "
+        f"{PATH_FINDER_DEFAULT_MAX_HOPS} hops: {sorted(thin_companies)}; "
+        "that page would render as one or two rows, not a real result set"
+    )
+
+    # The application's central claim is that route *quality* varies -- a
+    # short path through a strong tie should visibly outrank a long path
+    # through weak ones. If every company's best route scores about the same,
+    # there is nothing for that ranking to demonstrate.
+    strength_adjacency = _strength_adjacency(snapshot)
+    routes = _best_route_confidence(
+        strength_adjacency, PROTAGONIST_ID, PATH_FINDER_DEFAULT_MAX_HOPS
+    )
+    company_best_confidence: dict[str, float] = {}
+    for person_id, (confidence, _hops) in routes.items():
+        route_company = current.get(person_id)
+        if route_company is None:
+            continue
+        if (
+            route_company not in company_best_confidence
+            or confidence > company_best_confidence[route_company]
+        ):
+            company_best_confidence[route_company] = confidence
+    own_company = current[PROTAGONIST_ID]
+    other_confidences = [v for c, v in company_best_confidence.items() if c != own_company]
+    assert len(other_confidences) >= 2, (
+        f"only {len(other_confidences)} companies other than the protagonist's own have "
+        f"any route within {PATH_FINDER_DEFAULT_MAX_HOPS} hops; there is nothing to rank"
+    )
+    confidence_spread = max(other_confidences) / min(other_confidences)
+    assert confidence_spread >= 2.0, (
+        f"best-route confidence across companies spans only {confidence_spread:.2f}x "
+        f"(lowest {min(other_confidences):.3f}, highest {max(other_confidences):.3f}); "
+        "every route looks about equally good, so ranking by confidence has "
+        "nothing meaningful to demonstrate"
     )
 
     intra_company_edges = sum(1 for e in edges if current.get(e.from_id) == current.get(e.to_id))
