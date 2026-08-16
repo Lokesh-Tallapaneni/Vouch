@@ -150,7 +150,9 @@ returns one arbitrary path and would hide the strongest one.
 ranked by how well.* `shortestPath` here instead, because this runs once per
 insider — up to several dozen per company — and enumerating every
 equally-short path to each one would be a lot of work for an answer the UI
-never shows.
+never shows. On CognoDB, `shortestPath` doesn't actually return a single
+path — see divergence 5 in [Notes on CognoDB](#notes-on-cognodb) — so the
+query aggregates to the strongest path per insider before the final `LIMIT`.
 
 **Person profile** (`app/db/cypher/people.py`) — *everything the profile
 screen needs in one round trip, including mutual connections with the
@@ -228,6 +230,12 @@ WHERE toLower(p.name) STARTS WITH $term
   function is the textbook way to defeat a plain range index's seek
   eligibility — the planner usually can't prove the wrapped expression
   preserves the index's ordering, and falls back to a scan.
+- **The current-employer lookup is an `OPTIONAL MATCH` with the filter in a
+  `WHERE` clause, not inline.** `OPTIONAL MATCH
+  (p)-[:WORKED_AT {current: true}]->(c)` silently ignores the inline
+  property on CognoDB and returns every employer, current or not — see
+  divergence 4 in [Notes on CognoDB](#notes-on-cognodb) for the full story,
+  including the person it duplicated in search results before the fix.
 
 **I tried to measure whether that's actually happening here, and the engine
 wouldn't answer.** `PROFILE` is accepted by CognoDB but returns no operator
@@ -409,35 +417,65 @@ takes **16.6 seconds**, batched, against the live instance.
 
 ## Notes on CognoDB
 
-Three divergences from textbook Neo4j, each found by measuring against the
+Five divergences from textbook Neo4j, each found by measuring against the
 live instance rather than assumed from documentation — each cost real
 debugging time, so they're worth naming rather than leaving for the next
 person to rediscover.
 
-1. **Pattern predicates in `WHERE` don't filter.** `NOT (a)-[:KNOWS]-(c)`,
-   `EXISTS { MATCH ... }` and `NOT exists(...)` all behave as though the
-   pattern always matches — a positive predicate returns every row, a
-   negation returns none. Verified against ground truth computed
-   independently in Python (30,383 candidate pairs, 9,257 genuinely
-   unconnected). The form that actually filters is a pattern comprehension:
-   `size([(a)-[:KNOWS]-(c) | 1]) = 0`, which returns exactly 9,257.
-2. **`toString()` on a temporal returns a struct dump**, not ISO-8601 — e.g.
-   `{{2026 8 16} {13 19 42 769114387} 0}` — and `epochMillis` isn't
-   implemented. The fix is to never ask the database to stringify a
-   temporal: return the native value and coerce it to a Python `datetime` at
-   the client boundary instead (`app/db/client.py`, `_to_python`), where the
-   driver's own type hierarchy stops anyway.
-3. **A parameterised variable-length bound is a syntax error.**
-   `[:KNOWS*1..$max_hops]` is rejected outright — `expected ], got PARAM`.
-   The ceiling has to be a literal in the query text, so a caller's narrower
-   request is applied afterwards with `WHERE length(path) <= $max_hops`. Two
-   queries traversing the same relationship type don't even share a literal
-   ceiling: `shortestPath` in the company-insiders query runs once per
-   insider (dozens per company), so its literal bound is pinned tight (`*1..4`)
-   rather than the application's global maximum (`*1..5`) — a looser literal
-   bound is wasted traversal work regardless of what the `WHERE` filter
-   narrows afterwards, and that waste multiplies by however many insiders
-   there are.
+| # | Divergence | The fix |
+|---|---|---|
+| 1 | Pattern predicates in `WHERE` don't filter — `NOT (a)-[:KNOWS]-(c)` and friends behave as though the pattern always matches | A pattern comprehension instead: `size([(a)-[:KNOWS]-(c) \| 1]) = 0` |
+| 2 | `toString()` on a temporal returns a struct dump, not ISO-8601 | Never stringify in Cypher; coerce the native value to a Python `datetime` at the client boundary |
+| 3 | A parameterised variable-length bound (`*1..$max_hops`) is a syntax error | The ceiling is a literal in the query text; narrow it afterwards with `WHERE length(path) <= $max_hops` |
+| 4 | `OPTIONAL MATCH` ignores an inline relationship property | Bind the relationship and filter it in a `WHERE` clause instead |
+| 5 | `shortestPath()` returns *every* equally-short path, not one | Aggregate to the single best path per target before the outer `LIMIT` |
+
+**4 and 5 are worth reading in full**, because they're a materially
+different, more dangerous kind of bug than 1-3. Divergences 1-3 all fail
+loudly, in a way that's obvious the moment you look: an empty result set
+where rows were expected, a struct dump where a date belongs, a syntax
+error at query time. 4 and 5 fail *silently* — the query runs, returns 200,
+and the data looks entirely plausible until you count it.
+
+**4. `OPTIONAL MATCH` ignores an inline relationship property.**
+`OPTIONAL MATCH (p)-[:WORKED_AT {current: true}]->(c:Company)` returns
+*every* `WORKED_AT` edge, not just the current one — the inline `{current:
+true}` is silently dropped. This is narrower than divergence #1, and that
+narrowness is what makes it dangerous: a plain `MATCH` with the identical
+inline syntax filters correctly (measured directly against the full
+500-person graph: 500 rows, 500 distinct people), and
+so does `OPTIONAL MATCH (p)-[w:WORKED_AT]->(c) WHERE w.current = true` —
+only the inline form on an `OPTIONAL MATCH` is broken. The symptom was
+someone with a previous employer appearing twice in search results, the
+second row naming a company they left years ago as if it were current
+(`p0198 Priya Mehta` showed up as both `Dunlin Systems`, correct, and
+`Greenfield Health`, a job that ended in 2021). Fixed by moving the filter
+out of the inline form and into a `WHERE` clause bound to the relationship
+variable.
+
+**5. `shortestPath()` returns every equally-short path, not one.** Standard
+Cypher semantics say `shortestPath()` yields a single path; on this engine it
+behaves like `allShortestPaths()` and returns all of them. The
+company-insiders query assumed one row per insider — an insider reachable by
+two distinct routes of the same length appeared twice, at two different
+confidences, so a `limit=10` company page could show as few as 8 real people
+with the `LIMIT` spent on duplicate routes to people already shown. Fixed by
+aggregating per insider *after* computing confidence — ordering by
+confidence descending and keeping only the strongest path — before the outer
+`LIMIT` is applied.
+
+**Neither of these two produced an error.** Both returned a 200 with
+plausible-looking data, and both survived a full unit test suite, because
+the unit suite is built on `FakeGraph`, a hand-fed double that returns
+whatever rows a fixture registers — it proves the mapping from a result row
+to a domain model is correct, which is a different claim from "the query is
+correct," and one that stays true even when the query itself is wrong. A
+test double cannot reproduce a duplication the real engine invents on its
+own. Both bugs were caught by a human-equivalent pass through a real
+browser, not by any automated test that existed at the time — which is
+exactly why `tests/integration/` exists at all: it is the only part of the
+suite that touches the live instance, and it is now the part that pins both
+of these against regressing again.
 
 This section exists because the queries were verified against the real
 engine, not assumed correct from Neo4j's documentation — CognoDB implements
@@ -551,9 +589,19 @@ anything close to that is network, not query):
 |---|---:|
 | Bus factor | 578 ms |
 | Brokers | 3,476 ms (after tightening the negative-pattern rewrite in [Notes on CognoDB](#notes-on-cognodb); the naive form timed out at 30s) |
-| Company insiders, 4-hop ceiling | 2,063 ms |
-| Company insiders, 5-hop ceiling | 5,411 ms |
+| Company insiders, Dunlin Systems (`*1..4` ceiling) | 2,086 ms |
+| Company insiders, Cadence Retail (`*1..4` ceiling, worst case) | 2,215 ms |
+| Company insiders, Cadence Retail, `*1..5` ceiling for comparison[^insiders-timing] | 5,411 ms |
 | Person profile, warmed (self-view and other-view are indistinguishable) | ~520 ms |
+
+[^insiders-timing]: The two `*1..4` numbers above are current, measured after
+    the `shortestPath()` duplicate-path aggregation fix in [Notes on
+    CognoDB](#notes-on-cognodb) (divergence 5). The `5,411 ms` comparison row
+    predates that fix and is kept only because it's still what justifies the
+    tighter `*1..4` ceiling over the application's global `*1..5` maximum —
+    re-measuring it isn't expected to change the conclusion, since the
+    aggregation adds a bounded amount of work per insider on top of whichever
+    literal ceiling is already the dominant cost.
 
 **The first request on a cold connection pool costs ~1.9s** — roughly a
 1.4s premium over a warmed query — because the pool is lazy and pays TLS
