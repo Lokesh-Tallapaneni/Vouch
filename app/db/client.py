@@ -25,12 +25,13 @@ raises.
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import AsyncGenerator, Mapping
 from contextlib import asynccontextmanager
 from types import TracebackType
 from typing import Any, Self
 
-from neo4j import AsyncDriver, AsyncGraphDatabase, AsyncManagedTransaction, AsyncSession, Query
+from neo4j import AsyncDriver, AsyncGraphDatabase, AsyncSession, Query, RoutingControl
 from neo4j.exceptions import AuthError, ClientError, Neo4jError, ServiceUnavailable
 
 from app.core.exceptions import GraphUnavailableError, QueryTimeoutError
@@ -195,24 +196,7 @@ class GraphClient:
             QueryTimeoutError: the traversal ran past its timeout.
             GraphUnavailableError: unreachable instance, or rejected credentials.
         """
-        query = self._query(cypher, timeout)
-
-        async def _work(tx: AsyncManagedTransaction) -> list[dict[str, Any]]:
-            result = await tx.run(query, dict(params or {}))
-            return [record.data() async for record in result]
-
-        try:
-            async with self.session(readonly=True) as session:
-                return await session.execute_read(_work)
-        except (ServiceUnavailable, AuthError) as exc:
-            raise self._unavailable(exc) from exc
-        except ClientError as exc:
-            if exc.code in _TIMEOUT_CODES:
-                raise QueryTimeoutError() from exc
-            raise
-        except Neo4jError:
-            log.exception("read query failed")
-            raise
+        return await self._execute(cypher, params, timeout, RoutingControl.READ)
 
     async def write(
         self,
@@ -227,21 +211,63 @@ class GraphClient:
         itself issues no writes at all -- see the README on why that is also the
         reason there is no CSRF token.
         """
-        query = self._query(cypher, timeout)
+        return await self._execute(cypher, params, timeout, RoutingControl.WRITE)
 
-        async def _work(tx: AsyncManagedTransaction) -> list[dict[str, Any]]:
-            result = await tx.run(query, dict(params or {}))
-            return [record.data() async for record in result]
+    async def _execute(
+        self,
+        cypher: str,
+        params: Mapping[str, Any] | None,
+        timeout: float | None,
+        routing: RoutingControl,
+    ) -> list[dict[str, Any]]:
+        """Run one statement through a managed transaction.
 
+        ``driver.execute_query`` rather than ``session.execute_read(fn)`` for a
+        concrete reason: a transaction function receives an
+        ``AsyncManagedTransaction``, whose ``run()`` *rejects* a ``Query``
+        object ("Query object is only supported for session.run"), so there is
+        no way to attach a per-statement timeout on that path.
+        ``execute_query`` accepts a ``Query`` and is itself built on managed
+        transactions, so it gives us the timeout *and* the driver's
+        transient-failure retry with backoff.
+
+        Records are materialised here because a ``Result`` is only valid inside
+        its transaction.
+        """
+        started = time.perf_counter()
         try:
-            async with self.session(readonly=False) as session:
-                return await session.execute_write(_work)
+            result = await self._driver.execute_query(
+                self._query(cypher, timeout), dict(params or {}), routing_=routing
+            )
         except (ServiceUnavailable, AuthError) as exc:
             raise self._unavailable(exc) from exc
         except ClientError as exc:
             if exc.code in _TIMEOUT_CODES:
                 raise QueryTimeoutError() from exc
             raise
+        except Neo4jError:
+            log.exception("query failed")
+            raise
+
+        rows = [record.data() for record in result.records]
+        self._log_query(cypher, started, len(rows))
+        return rows
+
+    @staticmethod
+    def _log_query(cypher: str, started: float, rows: int) -> None:
+        """Emit one line per query.
+
+        Named by the first meaningful line of the statement, so a log reads
+        ``name=MATCH (p:Person {id: $person_id})`` rather than an opaque hash.
+        Real numbers from these lines become the README's timing table.
+        """
+        name = next((line.strip() for line in cypher.splitlines() if line.strip()), "unknown")[:60]
+        log.info(
+            "event=query name=%r duration_ms=%d rows=%d",
+            name,
+            int((time.perf_counter() - started) * 1000),
+            rows,
+        )
 
     async def execute_schema(self, statement: str, *, timeout: float | None = None) -> None:
         """Run one statement in its own auto-commit transaction.
