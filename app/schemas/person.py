@@ -15,7 +15,7 @@ actually promises.
 
 from __future__ import annotations
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from app.schemas.common import SchemaBase
 
@@ -52,7 +52,18 @@ class PersonProfileResponse(SchemaBase):
 
 
 class ProfileUpdateRequest(SchemaBase):
-    """PATCH body. Every field optional; absent means "leave it alone"."""
+    """PATCH body. Every field optional; absent means "leave it alone".
+
+    Rejects a whitespace-only value itself, at the wire boundary, rather than
+    leaving that to ``ProfileUpdate`` underneath. Veloce parses this schema
+    from the request body as part of routing, before the handler runs -- a
+    ``ValidationError`` raised here becomes the framework's own 422. Built
+    manually inside a handler instead (as ``ProfileUpdate`` briefly was),
+    the identical error descends from neither ``HTTPException`` nor
+    ``VouchError`` and falls through to the catch-all 500. ``ProfileUpdate``
+    keeps the same check too, as defence in depth for any caller that
+    reaches it without going through this schema.
+    """
 
     name: str | None = Field(default=None, max_length=120, description="Full name.")
     title: str | None = Field(default=None, max_length=120, description="Job title.")
@@ -60,3 +71,13 @@ class ProfileUpdateRequest(SchemaBase):
     headline: str | None = Field(
         default=None, max_length=280, description="Short self-description."
     )
+
+    @field_validator("name", "title", "seniority", "headline")
+    @classmethod
+    def _strip_and_reject_blank(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("must not be blank")
+        return stripped

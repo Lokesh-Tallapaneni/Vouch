@@ -40,6 +40,19 @@ async def test_get_profile_passes_both_ids_as_parameters() -> None:
     assert graph.calls[0].params == {"person_id": "p0001", "viewer_id": "me"}
 
 
+async def test_viewing_your_own_profile_skips_the_mutual_connections_match() -> None:
+    # viewer_id == person_id degenerates the mutual-connections match into
+    # "people who know me", returned as your mutual connections with
+    # yourself -- semantically wrong, and (until this fix) paid for on every
+    # PATCH, since update_profile re-reads via this exact self-view path.
+    self_row = {**PROFILE_ROW, "mutual_connections": []}
+    graph = FakeGraph({"[] AS mutual_connections": [self_row]})
+    profile = await PersonService(graph).get_profile("p0001", viewer_id="p0001")
+    assert profile.mutual_connections == []
+    assert "viewer:Person" not in graph.calls[0].cypher
+    assert "viewer_id" not in graph.calls[0].params
+
+
 async def test_update_profile_writes_only_the_supplied_fields() -> None:
     graph = FakeGraph({"SET p += $changes": [PROFILE_ROW], "OPTIONAL MATCH": [PROFILE_ROW]})
     await PersonService(graph).update_profile("p0001", ProfileUpdate(title="Principal Engineer"))

@@ -36,6 +36,14 @@ def _client(graph: FakeGraph) -> TestClient:
     return TestClient(app)
 
 
+def _csrf_headers(client: TestClient) -> dict[str, str]:
+    """Mint and echo a CSRF token so a PATCH clears CSRFMiddleware's
+    double-submit check and reaches the route under test -- see
+    tests/api/test_security_headers.py for the middleware's own coverage."""
+    client.get("/health")  # a safe-method request mints the csrf_token cookie
+    return {"x-csrf-token": client.cookies["csrf_token"]}
+
+
 def test_a_profile_is_readable_without_signing_in() -> None:
     # The demo must work with no account. This is the test that protects that.
     with _client(FakeGraph({"OPTIONAL MATCH": [PROFILE_ROW]})) as client:
@@ -51,7 +59,27 @@ def test_an_unknown_person_returns_404() -> None:
 
 def test_updating_a_profile_without_signing_in_returns_401() -> None:
     with _client(FakeGraph({})) as client:
-        assert client.patch("/api/v1/people/me", json={"title": "Principal"}).status_code == 401
+        headers = _csrf_headers(client)
+        response = client.patch("/api/v1/people/me", json={"title": "Principal"}, headers=headers)
+    assert response.status_code == 401
+
+
+def test_a_whitespace_only_patch_field_returns_422_not_500() -> None:
+    # Regression: this used to reach a pydantic ValidationError raised inside
+    # the handler body -- neither an HTTPException nor a VouchError -- which
+    # fell through to the catch-all and rendered as a 500. Rejection has to
+    # happen in request parsing, before the handler runs, so it renders as the
+    # 422 a bad request actually is.
+    graph = FakeGraph({"MATCH (a:Account {id": [ACCOUNT_ROW]})
+    with _client(graph) as client:
+        headers = _csrf_headers(client)
+        token = issue_session_token(
+            SessionClaims(account_id="acc-1", person_id="p0001"),
+            DUMMY_SETTINGS_ENV["JWT_SECRET"],
+        )
+        client.cookies.update({SESSION_COOKIE_NAME: token})
+        response = client.patch("/api/v1/people/me", json={"title": "   "}, headers=headers)
+    assert response.status_code == 422
 
 
 def test_updating_my_profile_while_signed_in_writes_to_my_own_id() -> None:
@@ -67,12 +95,15 @@ def test_updating_my_profile_while_signed_in_writes_to_my_own_id() -> None:
         }
     )
     with _client(graph) as client:
+        headers = _csrf_headers(client)
         token = issue_session_token(
             SessionClaims(account_id="acc-1", person_id="p0001"),
             DUMMY_SETTINGS_ENV["JWT_SECRET"],
         )
         client.cookies.update({SESSION_COOKIE_NAME: token})
-        response = client.patch("/api/v1/people/me", json={"title": "Principal Engineer"})
+        response = client.patch(
+            "/api/v1/people/me", json={"title": "Principal Engineer"}, headers=headers
+        )
     assert response.status_code == 200
     assert response.json()["name"] == "Priya Sharma"
     write = next(call for call in graph.calls if call.write)

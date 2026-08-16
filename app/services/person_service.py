@@ -7,7 +7,11 @@ from typing import Any
 from app.core.exceptions import InvalidInputError, ResourceNotFoundError
 from app.core.logging import get_logger
 from app.db.client import GraphClient
-from app.db.cypher.people import PERSON_PROFILE_CYPHER, UPDATE_PERSON_CYPHER
+from app.db.cypher.people import (
+    PERSON_PROFILE_CYPHER,
+    PERSON_SELF_PROFILE_CYPHER,
+    UPDATE_PERSON_CYPHER,
+)
 from app.models.person import EmploymentRecord, PersonProfile, ProfileUpdate
 
 log = get_logger("person_service")
@@ -23,9 +27,17 @@ class PersonService:
         self._graph = graph
 
     async def get_profile(self, person_id: str, viewer_id: str | None) -> PersonProfile:
-        rows = await self._graph.read(
-            PERSON_PROFILE_CYPHER, {"person_id": person_id, "viewer_id": viewer_id or ""}
-        )
+        # Looking at your own profile: skip the mutual-connections match
+        # entirely rather than running it and discarding a self-referential
+        # result -- see PERSON_SELF_PROFILE_CYPHER for why that match is
+        # wrong, not just wasted, when viewer and subject are the same
+        # person. update_profile's post-write re-read always lands here.
+        if viewer_id is not None and viewer_id == person_id:
+            rows = await self._graph.read(PERSON_SELF_PROFILE_CYPHER, {"person_id": person_id})
+        else:
+            rows = await self._graph.read(
+                PERSON_PROFILE_CYPHER, {"person_id": person_id, "viewer_id": viewer_id or ""}
+            )
         if not rows:
             raise ResourceNotFoundError("We couldn't find that person in the network.")
         return self._to_profile(rows[0])

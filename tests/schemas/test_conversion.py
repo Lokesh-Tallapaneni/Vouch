@@ -2,10 +2,13 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+import pytest
+from pydantic import ValidationError
+
 from app.models.account import Account
 from app.models.person import EmploymentRecord, PersonProfile
 from app.schemas.auth import AccountResponse
-from app.schemas.person import EmploymentResponse, PersonProfileResponse
+from app.schemas.person import EmploymentResponse, PersonProfileResponse, ProfileUpdateRequest
 
 
 def test_account_response_is_built_from_the_model() -> None:
@@ -65,3 +68,20 @@ def test_response_fields_the_model_defaults_are_still_required_on_the_wire() -> 
 def test_a_profile_response_still_builds_from_a_model_using_its_defaults() -> None:
     profile = PersonProfile(id="p1", name="Priya Sharma", title="Staff Engineer", seniority="staff")
     assert PersonProfileResponse.model_validate(profile, from_attributes=True).headline == ""
+
+
+def test_profile_update_request_rejects_a_whitespace_only_field() -> None:
+    # The wire schema must reject this itself: Veloce's own request-parsing
+    # path is what turns it into a 422, before the handler -- and the model
+    # underneath -- ever run. See ProfileUpdate for the equivalent, deeper
+    # defence-in-depth check.
+    with pytest.raises(ValidationError):
+        ProfileUpdateRequest(title="   ")
+
+
+def test_profile_update_request_strips_surrounding_whitespace() -> None:
+    assert ProfileUpdateRequest(title="  Principal Engineer  ").title == "Principal Engineer"
+
+
+def test_profile_update_request_leaves_an_absent_field_absent() -> None:
+    assert ProfileUpdateRequest().title is None
