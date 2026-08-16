@@ -1,15 +1,35 @@
 {# Lazy-loaded by network.html via hx-get="/fragments/bus-factor-risks",
-   alongside _brokers.html -- see that file for why this loads lazily too. #}
+   alongside _brokers.html -- see that file for why this loads lazily too.
+
+   Grouped by project (app.web.fragments._group_risks_by_project) instead of
+   one flat "{{ project }} -- {{ skill }}: only {{ holder }}" line per risk:
+   these are naturally two columns -- what's at risk (skill) and who's the
+   single point of failure (holder) -- for a given project, so the project
+   is said once as a heading and the rows underneath say only what differs. #}
 {% from "_states.html" import empty %}
-{% if risks %}
-  <ul>
-    {% for risk in risks %}
-      {# sole_holder is a name, not a person id (BUS_FACTOR_CYPHER's own
-         RETURN clause projects holders[0] from collect(DISTINCT p.name)) --
-         plain text, not a guessed-and-possibly-wrong profile link. #}
-      <li>{{ risk.project }} — {{ risk.skill }}: only {{ risk.sole_holder }}</li>
-    {% endfor %}
-  </ul>
+{% if groups %}
+  {% for group in groups %}
+    <section class="risk-group" aria-labelledby="risk-heading-{{ loop.index0 }}">
+      <h3 class="risk-group__header" id="risk-heading-{{ loop.index0 }}">
+        {{ group.project }}
+        <span class="risk-group__count">
+          {{ group.risks|length }} at risk
+        </span>
+      </h3>
+      <ul class="risk-rows">
+        {% for risk in group.risks %}
+          {# sole_holder is a name, not a person id (BUS_FACTOR_CYPHER's own
+             RETURN clause projects holders[0] from collect(DISTINCT
+             p.name)) -- plain text, not a guessed-and-possibly-wrong
+             profile link. #}
+          <li class="risk-row">
+            <span class="risk-row__skill">{{ risk.skill }}</span>
+            <span class="risk-row__holder">only {{ risk.sole_holder }}</span>
+          </li>
+        {% endfor %}
+      </ul>
+    </section>
+  {% endfor %}
 {% else %}
   {{ empty("No single points of failure found.") }}
 {% endif %}

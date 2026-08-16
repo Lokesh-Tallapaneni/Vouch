@@ -853,3 +853,55 @@ button:hover, input[type="submit"]:hover { filter: brightness(1.15); }
   .route-row__summary { row-gap: var(--s2); }
   .route-row__meta { flex-basis: 100%; }
 }
+
+/* --- Network page: brokers and bus-factor risks ----------------------------
+   Same density move as the company and person pages: a broker or a risk used
+   to render as a card built mostly of whitespace around one fact. Neither
+   panel needs a disclosure -- there's no chain or draft to reveal on demand
+   here, just a name+title+count (brokers) or a skill+holder (risks) -- so
+   these are plain rows, not <details>. */
+.broker-rows {
+  list-style: none; margin: 0; padding: 0;
+  border: 1px solid var(--rule); border-radius: var(--radius);
+  background: var(--surface); overflow: hidden;
+}
+.broker-rows > li + li { border-top: 1px solid var(--rule); }
+.broker-row {
+  display: flex; align-items: center; gap: var(--s4); flex-wrap: wrap;
+  padding: var(--s3) var(--s4);
+}
+.broker-row__name { font-weight: 600; flex: 1 1 11rem; min-width: 8rem; }
+.broker-row__name a { color: var(--ink); text-decoration: none; }
+.broker-row__name a:hover { color: var(--accent); text-decoration: underline; }
+.broker-row__title { color: var(--muted); font-size: 0.9rem; flex: 1 1 10rem; }
+/* The bridge count is the ranking signal for this list, same role the
+   confidence badge plays on a route -- pinned to the far right so it reads
+   as the row's verdict, not just another field among equals. */
+.broker-row .confidence { margin-left: auto; }
+
+.risk-group { margin-bottom: var(--s6); }
+.risk-group__header {
+  display: flex; align-items: baseline; gap: var(--s3); flex-wrap: wrap;
+  font-size: 1.05rem; margin: 0 0 var(--s3);
+}
+.risk-group__count {
+  font-family: var(--font-mono); font-size: 0.78rem; font-weight: 400;
+  color: var(--muted);
+}
+.risk-rows {
+  list-style: none; margin: 0; padding: 0;
+  border: 1px solid var(--rule); border-radius: var(--radius);
+  background: var(--surface); overflow: hidden;
+}
+.risk-rows > li + li { border-top: 1px solid var(--rule); }
+.risk-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: var(--s4); flex-wrap: wrap;
+  padding: var(--s3) var(--s4);
+}
+.risk-row__skill { font-weight: 600; }
+.risk-row__holder { color: var(--muted); font-size: 0.9rem; }
+
+@media (max-width: 46rem) {
+  .broker-row .confidence { margin-left: 0; }
+}

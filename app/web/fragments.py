@@ -11,6 +11,8 @@ feature rather than as "no matches".
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from veloce import Request, Response, Router
 
 from app.api.dependencies import (
@@ -21,6 +23,7 @@ from app.api.dependencies import (
     ViewerId,
 )
 from app.core.exceptions import ResourceNotFoundError
+from app.models.network import BusFactorRisk
 from app.web.templating import templates
 
 router = Router(prefix="/fragments", tags=["fragments"])
@@ -132,10 +135,46 @@ async def brokers_fragment(request: Request, network: NetworkServiceDep) -> Resp
     return templates.TemplateResponse("_brokers.html", {"request": request, "brokers": brokers})
 
 
+@dataclass(frozen=True, slots=True)
+class _RiskGroup:
+    """Every skill held by exactly one person on the same project.
+
+    Same "structure once, list compactly" move as the company page's
+    insider groups: the old row repeated its project on every line
+    ("Atlas -- Kafka: only Meera Iyer", "Atlas -- CI/CD: only Grace
+    Reddy", ...) instead of saying it once and listing what's actually
+    different underneath.
+    """
+
+    project: str
+    risks: list[BusFactorRisk]
+
+
+def _group_risks_by_project(risks: list[BusFactorRisk]) -> list[_RiskGroup]:
+    """Group risks by project, in Python -- see pages._group_insiders_by_first_hop
+    for the same reasoning applied to the company page.
+
+    No re-sort: BUS_FACTOR_CYPHER already orders by project ASC, skill ASC,
+    so rows for the same project already arrive adjacent and alphabetical
+    order is as good a default here as any -- unlike the company page,
+    there's no "largest group first" narrative point a risk inventory needs
+    to make.
+    """
+    order: list[str] = []
+    buckets: dict[str, list[BusFactorRisk]] = {}
+    for risk in risks:
+        if risk.project not in buckets:
+            buckets[risk.project] = []
+            order.append(risk.project)
+        buckets[risk.project].append(risk)
+    return [_RiskGroup(project=name, risks=buckets[name]) for name in order]
+
+
 @router.get("/bus-factor-risks")
 async def bus_factor_risks_fragment(request: Request, network: NetworkServiceDep) -> Response:
     """The bus-factor panel, loaded lazily alongside brokers."""
     risks = await network.find_bus_factor_risks(limit=25)
     return templates.TemplateResponse(
-        "_bus_factor_risks.html", {"request": request, "risks": risks}
+        "_bus_factor_risks.html",
+        {"request": request, "groups": _group_risks_by_project(risks)},
     )

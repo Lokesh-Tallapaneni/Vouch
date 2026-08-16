@@ -1,18 +1,25 @@
 {# Lazy-loaded by network.html via hx-get="/fragments/brokers" -- Brokers
    runs a three-node graph match and takes ~3.9s against the live instance,
    the slowest thing an evaluator can click, so the shell renders instantly
-   and this fills in once ready rather than blocking the whole page. #}
+   and this fills in once ready rather than blocking the whole page.
+
+   No grouping here, unlike the company page's insiders or the bus-factor
+   panel below: a broker isn't reached *through* anyone, so there's no
+   shared first hop or project to collapse -- each is just a fact about one
+   person, ranked by how many team pairs they bridge. The density move
+   still applies: one compact row per broker instead of a ~140px card. #}
 {% from "_states.html" import empty %}
 {% if brokers %}
-  <ol class="insiders">
+  <ol class="broker-rows">
     {% for broker in brokers %}
-      <li>
-        <h3><a href="/people/{{ broker.person_id }}">{{ broker.name }}</a></h3>
-        <p class="row-head__meta">{{ broker.title }}</p>
+      <li class="broker-row">
+        <span class="broker-row__name">
+          <a href="/people/{{ broker.person_id }}">{{ broker.name }}</a>
+        </span>
+        <span class="broker-row__title">{{ broker.title }}</span>
         {# Deliberately unbanded: bridged_pairs is a count, and colouring it
            strong/medium/weak would imply a verdict the number does not carry. #}
         <span class="confidence" data-label="bridges">{{ broker.bridged_pairs }}</span>
-        <span class="row-head__meta"> team pair{{ "s" if broker.bridged_pairs != 1 else "" }}</span>
       </li>
     {% endfor %}
   </ol>
