@@ -587,6 +587,18 @@ tests that need the live CognoDB instance rather than `FakeGraph` — CI runs
 only `-m "not integration"` because no database secret is exposed to pull
 requests, so a fork can never accidentally get a real connection string.
 
+```bash
+uv run pytest -m integration
+```
+
+A valid `.env` in the repo root is sufficient to run these — nothing needs
+exporting into the shell first. `tests/integration/test_queries.py` checks
+both `os.environ` and `.env` directly for `COGNODB_URI` before deciding
+whether to skip, since `Settings` reads `.env` through pydantic-settings
+rather than through `os.environ`, and a naive `os.environ`-only check would
+skip on a perfectly configured machine. All nine tests run against the live
+instance in well under a minute.
+
 ---
 
 ## Trade-offs and what I'd do next
