@@ -301,6 +301,50 @@ def test_the_bus_factor_fragment_renders_an_empty_state_with_no_data() -> None:
     assert "state--empty" in response.text
 
 
+def test_the_brokers_fragment_renders_compact_rows() -> None:
+    graph = FakeGraph(
+        {
+            "MATCH (a:Person)-[:KNOWS]-(b:Person)-[:KNOWS]-(c:Person)": [
+                {
+                    "person_id": "p0009",
+                    "name": "Arjun Rao",
+                    "title": "Tech Lead",
+                    "bridged_pairs": 3,
+                }
+            ]
+        }
+    )
+    with _client(graph) as client:
+        response = client.get("/fragments/brokers")
+    assert '<li class="broker-row">' in response.text
+    assert "Arjun Rao" in response.text
+    assert "Tech Lead" in response.text
+
+
+def test_the_bus_factor_fragment_groups_risks_by_project() -> None:
+    # BUS_FACTOR_CYPHER already orders by project ASC, skill ASC, so rows
+    # for the same project arrive adjacent -- grouping just makes that
+    # structure visible instead of repeating "Atlas" on every one of its
+    # rows the old "{{project}} -- {{skill}}: only {{holder}}" line did.
+    graph = FakeGraph(
+        {
+            "MATCH (pr:Project)<-[:WORKS_ON]-(p:Person)-[:HAS_SKILL]->(s:Skill)": [
+                {"project": "Atlas", "skill": "Kafka", "sole_holder": "Meera Iyer"},
+                {"project": "Atlas", "skill": "CI/CD", "sole_holder": "Grace Reddy"},
+                {"project": "Beacon", "skill": "SEO", "sole_holder": "Aditya Iyer"},
+            ]
+        }
+    )
+    with _client(graph) as client:
+        response = client.get("/fragments/bus-factor-risks")
+    assert "Atlas" in response.text
+    assert "2 at risk" in response.text
+    assert "Beacon" in response.text
+    assert "1 at risk" in response.text
+    # "Atlas" names the group once, not once per row under it.
+    assert response.text.count("Atlas") == 1
+
+
 def test_sign_in_page_carries_the_csrf_token_the_form_will_need() -> None:
     with _client(FakeGraph({})) as client:
         client.get("/")  # primes the csrf_token cookie
