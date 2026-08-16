@@ -52,6 +52,38 @@ def test_a_token_round_trips_its_claims() -> None:
     assert read_session_token(issue_session_token(claims, SECRET), SECRET) == claims
 
 
+def test_a_token_round_trips_a_name() -> None:
+    claims = SessionClaims(account_id="acc-1", person_id="me", name="Priya Sharma")
+    assert read_session_token(issue_session_token(claims, SECRET), SECRET) == claims
+
+
+def test_a_token_minted_without_a_name_decodes_with_name_none() -> None:
+    # A token issued before this field existed, or by a code path not yet
+    # updated to supply one -- still decodes and signs someone in. Missing
+    # `name` is not a rejection reason: it is not a security claim, and a
+    # caller falls back to a database lookup for the header rather than the
+    # whole session becoming untrustworthy.
+    token = encode_jwt(
+        {"sub": "a", "pid": "me", "exp": int(time.time()) + 3600}, SECRET, alg="HS256"
+    )
+    claims = read_session_token(token, SECRET)
+    assert claims is not None
+    assert claims.name is None
+
+
+def test_a_token_with_a_non_string_name_is_treated_as_absent_not_rejected() -> None:
+    # `name` is decorative, unlike `sub`/`pid` -- a malformed value degrades
+    # to "no name" rather than invalidating an otherwise-valid session.
+    token = encode_jwt(
+        {"sub": "a", "pid": "me", "name": 12345, "exp": int(time.time()) + 3600},
+        SECRET,
+        alg="HS256",
+    )
+    claims = read_session_token(token, SECRET)
+    assert claims is not None
+    assert claims.name is None
+
+
 def test_a_token_signed_with_another_secret_is_rejected() -> None:
     token = issue_session_token(SessionClaims(account_id="a", person_id="me"), SECRET)
     assert read_session_token(token, "a-different-secret-entirely") is None

@@ -19,7 +19,7 @@ from veloce import Depends, HTTPException, Request
 from app.core.security import SESSION_COOKIE_NAME, read_session_token
 from app.core.settings import Settings
 from app.db.client import GraphClient
-from app.models.account import Account
+from app.models.account import Account, SessionClaims
 from app.services.account_service import AccountService
 from app.services.network_service import NetworkService
 from app.services.person_service import PersonService
@@ -59,22 +59,41 @@ def get_account_service(graph: GraphDep) -> AccountService:
 AccountServiceDep = Annotated[AccountService, Depends(get_account_service)]
 
 
-async def get_current_account(
-    request: Request, accounts: AccountServiceDep, settings: SettingsDep
-) -> Account | None:
-    """Resolve the signed-in account, or None.
+async def get_session_claims(request: Request, settings: SettingsDep) -> SessionClaims | None:
+    """Decode the session cookie, or None if there isn't one or it doesn't
+    verify.
 
-    Returns None for every untrustworthy token rather than raising, so a stale
-    or tampered cookie renders a signed-out page instead of an error. Public
-    pages depend on this; only write routes depend on ``require_account``.
-
-    The account is re-read from the graph rather than trusted from the token:
-    a token whose account was deleted must not keep working.
+    Split out from ``get_current_account`` so the token is decoded exactly
+    once per request and shared by every dependency that needs something out
+    of it -- Veloce caches a dependency's result for the lifetime of the
+    request, so ``get_current_account`` and ``get_current_account_name`` both
+    depending on this costs one decode, not two. Returns None for every
+    untrustworthy token rather than raising, so a stale or tampered cookie
+    renders a signed-out page instead of an error.
     """
     token = request.cookies.get(SESSION_COOKIE_NAME)
     if not token:
         return None
-    claims = read_session_token(token, settings.jwt_secret.get_secret_value())
+    return read_session_token(token, settings.jwt_secret.get_secret_value())
+
+
+CurrentSessionClaims = Annotated[SessionClaims | None, Depends(get_session_claims)]
+
+
+async def get_current_account(
+    claims: CurrentSessionClaims, accounts: AccountServiceDep
+) -> Account | None:
+    """Resolve the signed-in account, or None.
+
+    The account is re-read from the graph rather than trusted from the
+    token's claims: a token whose account was deleted must not keep working.
+    That's the one property in this whole dependency chain that has to stay
+    a database round trip on every request, no matter what else here becomes
+    cheaper -- see ``get_current_account_name`` below for the one thing that
+    deliberately does *not* re-read from the graph, and why that's safe.
+    Public pages depend on this; only write routes depend on
+    ``require_account``.
+    """
     if claims is None:
         return None
     return await accounts.get_by_id(claims.account_id)
@@ -124,7 +143,9 @@ def get_person_service(graph: GraphDep) -> PersonService:
 PersonServiceDep = Annotated[PersonService, Depends(get_person_service)]
 
 
-async def get_current_account_name(account: CurrentAccount, people: PersonServiceDep) -> str | None:
+async def get_current_account_name(
+    account: CurrentAccount, claims: CurrentSessionClaims, people: PersonServiceDep
+) -> str | None:
     """The signed-in account holder's display name, or None when signed out.
 
     A person's name, not their account's email address, is what the header
@@ -132,31 +153,43 @@ async def get_current_account_name(account: CurrentAccount, people: PersonServic
     something a user wants to see about themselves in navigation. Account
     and Person are deliberately separate models (see app.models.account's
     own module docstring: most people in the graph never have an account),
-    so the name has to come from a second lookup rather than living on
-    Account itself.
+    so the name doesn't live on Account itself.
 
-    Calls ``PersonService.get_display_name``, not ``get_profile`` --
-    deliberately, after measuring the version that called ``get_profile``.
-    Every route depending on ``CurrentAccountName`` (the header, on every
-    signed-in page) was paying for the full five-clause profile query --
-    employment, skills, projects, team, mutual connections -- to read a
-    single field off the result.
+    Reads the name from the session token's claims first -- zero database
+    calls, since the token was already decoded (and its signature verified)
+    to resolve ``account`` above. Falls back to
+    ``PersonService.get_display_name`` (one property, no ``OPTIONAL MATCH``,
+    no ``collect()`` -- see that method's own docstring) only for a token
+    minted before this field existed, or by a path not yet updated to supply
+    it, so a session in that window still gets a header instead of a blank
+    one.
 
-    Measured honestly rather than assumed: on the current 500-person
-    instance this is *not* a wall-clock win -- ``get_profile`` and
-    ``get_display_name`` both land at ~526ms, because ``PERSON_PROFILE_CYPHER``
-    was already restructured (chained ``WITH ... collect(DISTINCT ...)``,
-    see ``app.db.cypher.people``) to the same network floor this query sits
-    at. The call count is unchanged too: this is still one database round
-    trip, same as before. What changes is query hygiene, which pays off on
-    a timeline this measurement can't see -- no ``OPTIONAL MATCH``, no
-    ``collect()``, a fraction of the payload, and no growth in cost as the
-    graph grows, unlike the profile query it replaced. The measured latency
-    and round-trip win lives one layer up: see ``get_current_account_name``'s
-    replacement (reading the name from the session token) once that lands.
+    Still gated on ``account``, not just on the claims: a token can be
+    validly signed and unexpired while the account it names no longer
+    exists (deleted after the token was issued), and ``account`` is the
+    thing that catches that -- ``get_current_account`` re-reads it from the
+    graph on every request specifically so revocation takes effect
+    immediately. Reading a name straight off ``claims`` without that gate
+    would show a name for a signed-out visitor whenever their stale token
+    happened to carry one. ``name`` itself is fine to trust from the token
+    unverified against the graph, because it is decorative, not an
+    authorisation claim -- see ``SessionClaims``' own docstring for why that
+    distinction has to hold.
+
+    Measured: this used to call ``get_profile``, the structurally heaviest
+    query in the app (five chained ``OPTIONAL MATCH``es), to read one field
+    off the result -- a hygiene problem regardless of wall clock, since
+    ``PERSON_PROFILE_CYPHER`` happens to already sit at the network floor on
+    today's 500-person instance. The version here is what actually removes
+    a database round trip: once the token carries a name (i.e. for every
+    session minted after this change), the count for a signed-in page drops
+    by exactly one call -- confirmed for ``/`` and ``/people/{id}`` in the
+    project's build notes.
     """
     if account is None:
         return None
+    if claims is not None and claims.name is not None:
+        return claims.name
     return await people.get_display_name(account.person_id)
 
 

@@ -4,10 +4,11 @@ import pytest
 from veloce import Router, TestClient
 
 from app.api.dependencies import RequiredAccount, get_account_service, get_graph
-from app.core.security import SESSION_COOKIE_NAME, hash_account_password
+from app.core.security import SESSION_COOKIE_NAME, hash_account_password, read_session_token
 from app.main import create_app
 from app.models.account import Account, AccountCreate, Credentials
 from app.services.account_service import AccountService
+from tests.conftest import DUMMY_SETTINGS_ENV
 from tests.support.fake_graph import FakeGraph
 
 PASSWORD = "correct horse battery"
@@ -100,6 +101,24 @@ def test_the_session_cookie_carries_every_flag_the_browser_needs(client_and_grap
     assert "Secure" in cookie
     assert "SameSite=Lax" in cookie
     assert "Path=/" in cookie
+
+
+def test_login_mints_a_token_carrying_the_persons_display_name(client_and_graph) -> None:
+    # The whole point of the JWT-embedding fix: the header should read the
+    # name straight off the token, with zero extra database calls per
+    # signed-in page. Register the name lookup fragment explicitly, keyed
+    # to a distinct name from the account fixture's own person, so this
+    # can't pass by accident against some other registered row.
+    client, graph = client_and_graph
+    _with_login_row(graph)
+    graph.rows_by_fragment["RETURN p.name AS name"] = [{"name": "Priya Sharma"}]
+    response = client.post(
+        "/api/v1/auth/login", json={"email": "a@b.com", "password": PASSWORD}, headers=_csrf(client)
+    )
+    token = response.cookies[SESSION_COOKIE_NAME]
+    claims = read_session_token(token, DUMMY_SETTINGS_ENV["JWT_SECRET"])
+    assert claims is not None
+    assert claims.name == "Priya Sharma"
 
 
 def test_login_with_a_wrong_password_returns_401_and_sets_no_cookie(client_and_graph) -> None:
@@ -199,6 +218,20 @@ def test_register_creates_an_account_and_signs_it_in(client_and_graph) -> None:
     assert "password_hash" not in response.text
     cookie = response.headers["set-cookie"]
     assert SESSION_COOKIE_NAME in cookie and "HttpOnly" in cookie
+
+
+def test_register_mints_a_token_carrying_the_persons_display_name(client_and_graph) -> None:
+    client, graph = client_and_graph
+    graph.rows_by_fragment["RETURN p.name AS name"] = [{"name": "Priya Sharma"}]
+    response = client.post(
+        "/api/v1/auth/register",
+        json={"email": "a@b.com", "password": PASSWORD, "person_id": "me"},
+        headers=_csrf(client),
+    )
+    token = response.cookies[SESSION_COOKIE_NAME]
+    claims = read_session_token(token, DUMMY_SETTINGS_ENV["JWT_SECRET"])
+    assert claims is not None
+    assert claims.name == "Priya Sharma"
 
 
 def test_register_and_login_convert_the_wire_schema_before_calling_the_service() -> None:

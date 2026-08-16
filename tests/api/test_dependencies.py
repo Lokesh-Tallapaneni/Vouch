@@ -11,7 +11,7 @@ round trips it costs), which is easiest to see with nothing else in the way.
 from __future__ import annotations
 
 from app.api.dependencies import get_current_account_name
-from app.models.account import Account
+from app.models.account import Account, SessionClaims
 from app.services.person_service import PersonService
 from tests.support.fake_graph import FakeGraph
 
@@ -22,21 +22,44 @@ _ACCOUNT = Account(
 
 async def test_signed_out_costs_no_database_call() -> None:
     graph = FakeGraph({"RETURN p.name AS name": [{"name": "Priya Sharma"}]})
-    name = await get_current_account_name(None, PersonService(graph))
+    name = await get_current_account_name(None, None, PersonService(graph))
     assert name is None
     assert graph.calls == []
 
 
-async def test_signed_in_resolves_the_name_with_a_single_cheap_call() -> None:
-    # Hygiene fix, not a measured latency win on today's small dataset (see
-    # get_current_account_name's own docstring for the honest numbers): this
-    # used to call PersonService.get_profile -- the structurally heaviest
-    # query in the app, five OPTIONAL MATCHes and four collect()s -- to read
-    # one field off the result. Still one call either way; what's pinned
-    # here is that it's no longer shaped like the profile query.
+async def test_a_name_carried_in_the_session_token_costs_no_database_call() -> None:
+    # The whole point of embedding the name in the token: once it's there,
+    # the header is free. Zero calls, not "one cheap call" -- see the
+    # sibling test below for the case that still needs a lookup.
+    claims = SessionClaims(account_id="acc-1", person_id="p0001", name="Priya Sharma")
+    graph = FakeGraph({"RETURN p.name AS name": [{"name": "Someone Else"}]})
+    name = await get_current_account_name(_ACCOUNT, claims, PersonService(graph))
+    assert name == "Priya Sharma"
+    assert graph.calls == []
+
+
+async def test_a_token_minted_without_a_name_falls_back_to_a_single_cheap_lookup() -> None:
+    # Covers a token issued before this field existed, or by a path not yet
+    # updated to supply it -- the header must not go blank for that
+    # session's remaining lifetime. Still cheap: one property, no
+    # OPTIONAL MATCH, no collect() -- not the full profile query.
+    claims = SessionClaims(account_id="acc-1", person_id="p0001", name=None)
     graph = FakeGraph({"RETURN p.name AS name": [{"name": "Priya Sharma"}]})
-    name = await get_current_account_name(_ACCOUNT, PersonService(graph))
+    name = await get_current_account_name(_ACCOUNT, claims, PersonService(graph))
     assert name == "Priya Sharma"
     assert len(graph.calls) == 1
     assert "OPTIONAL MATCH" not in graph.calls[0].cypher
     assert "collect(" not in graph.calls[0].cypher
+
+
+async def test_a_revoked_account_shows_no_name_even_with_a_name_carrying_token() -> None:
+    # The revocation property this dependency must not quietly break: if
+    # the account no longer exists, `account` (re-read from the graph, per
+    # get_current_account) is None regardless of what a still-valid,
+    # still-signed token's claims say. A name must never be shown for a
+    # signed-out visitor just because their old token happened to carry one.
+    claims = SessionClaims(account_id="acc-1", person_id="p0001", name="Priya Sharma")
+    graph = FakeGraph({})
+    name = await get_current_account_name(None, claims, PersonService(graph))
+    assert name is None
+    assert graph.calls == []

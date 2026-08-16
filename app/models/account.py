@@ -57,7 +57,30 @@ class Account(BaseModel):
 
 
 class SessionClaims(BaseModel):
-    """What the session cookie asserts."""
+    """What the session cookie asserts.
+
+    ``name`` is a display convenience, not an authorisation claim, and that
+    distinction has to hold for as long as this field exists: it lets
+    ``get_current_account_name`` read the signed-in header straight off an
+    already-decoded token instead of paying a database round trip on every
+    page. The trade-off, named so nobody "fixes" it by adding more to the
+    token later: if someone renames themselves via ``PATCH /people/me``, the
+    header keeps showing the old name until their next sign-in, since the
+    token isn't re-issued on a profile edit. That staleness window is fine
+    for a name shown in navigation chrome. It would not be fine for
+    anything an authorisation decision depends on -- a role, a permission, a
+    revocation flag -- because ``get_current_account`` deliberately re-reads
+    those from the graph on every request specifically so a change takes
+    effect immediately (see that function's own docstring). ``name`` must
+    stay display-only, or that property quietly breaks.
+
+    Optional, not required: a token minted before this field existed (or by
+    a code path not yet updated to supply it) still decodes and signs
+    someone in -- it just carries no name, and callers fall back to a
+    database lookup rather than showing a blank or broken header for that
+    session's remaining lifetime.
+    """
 
     account_id: str
     person_id: str
+    name: str | None = None

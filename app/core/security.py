@@ -68,7 +68,14 @@ def verify_account_password(raw: str, hashed: str) -> bool:
 def issue_session_token(
     claims: SessionClaims, secret: str, ttl_hours: int = DEFAULT_TTL_HOURS
 ) -> str:
-    """Mint a signed identity token."""
+    """Mint a signed identity token.
+
+    ``name`` rides along as ``"nm"`` when the caller has one to give --
+    display-only, per ``SessionClaims``' own docstring on why that has to
+    stay true. Omitted from the payload entirely rather than encoded as
+    ``null`` when absent, so a token minted by an older build and one minted
+    here with no name available are indistinguishable on the wire.
+    """
     now = datetime.now(UTC)
     payload = {
         "sub": claims.account_id,
@@ -76,6 +83,8 @@ def issue_session_token(
         "iat": int(now.timestamp()),
         "exp": int((now + timedelta(hours=ttl_hours)).timestamp()),
     }
+    if claims.name is not None:
+        payload["nm"] = claims.name
     return encode_jwt(payload, secret, alg=_ALGORITHM)
 
 
@@ -109,4 +118,10 @@ def read_session_token(token: str, secret: str) -> SessionClaims | None:
     if not isinstance(account_id, str) or not isinstance(person_id, str):
         log.info("session token rejected: missing or mistyped claims")
         return None
-    return SessionClaims(account_id=account_id, person_id=person_id)
+    # `name` is decorative (see SessionClaims' docstring), not a security
+    # claim like sub/pid above -- a missing or malformed value degrades to
+    # "no name" rather than invalidating an otherwise-trustworthy session.
+    name = payload.get("nm")
+    return SessionClaims(
+        account_id=account_id, person_id=person_id, name=name if isinstance(name, str) else None
+    )
