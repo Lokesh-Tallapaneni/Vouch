@@ -16,9 +16,12 @@ Route surface:
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from veloce import (
     CSPMiddleware,
     CSRFMiddleware,
+    Jinja2Templates,
     LoggingMiddleware,
     RateLimitMiddleware,
     RequestIDMiddleware,
@@ -36,6 +39,15 @@ APP_TITLE = "Vouch"
 APP_VERSION = "0.1.0"
 APP_DESCRIPTION = "A referral-path finder over a professional network, backed by CognoDB."
 
+#: Module level, not inside create_app(): app.web.pages (the server-rendered
+#: page routes, to follow) imports `templates` directly rather than building
+#: its own environment, so every page renders through the one Jinja
+#: environment this module owns. Safe at import time -- unlike Settings or
+#: the connection pool, building a Jinja environment reads no configuration
+#: and opens no socket.
+BASE_DIR = Path(__file__).resolve().parent
+templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+
 
 def create_app() -> Veloce:
     """Build and wire the application."""
@@ -49,6 +61,17 @@ def create_app() -> Veloce:
     app.include_router(health.router)
     app.include_router(v1.router)
     register_exception_handlers(app)
+
+    # `app.mount("/static", StaticFiles(...))` -- what an earlier draft of
+    # this task called for -- works, but `mount_static` is veloce's own
+    # preferred spelling for exactly this (its `Veloce.mount` docstring says
+    # so directly) and does one thing that hand-built call doesn't: it stats
+    # the directory at wiring time and raises immediately if it's missing,
+    # rather than letting every asset request 404 silently until someone
+    # opens the page. `Veloce.mount`/`StaticFiles.__init__` also don't accept
+    # a `name=` kwarg at all -- checked with `inspect.signature`, not
+    # assumed.
+    app.mount_static(prefix="/static", directory=str(BASE_DIR / "static"))
 
     # RequestIDMiddleware first, LoggingMiddleware second: veloce's
     # Middleware pipeline runs process_request in registration order (and
@@ -68,7 +91,14 @@ def create_app() -> Veloce:
     app.add_middleware(RequestIDMiddleware)
     app.add_middleware(LoggingMiddleware)
 
-    app.add_middleware(SecurityHeadersMiddleware)
+    # `hsts_max_age` -- confirmed present on `SecurityHeadersMiddleware`'s
+    # real signature, not assumed. Render terminates TLS and may inject its
+    # own Strict-Transport-Security, but depending on the platform for a
+    # security header is a weaker answer than setting it here; 31536000s
+    # (one year) matches the value veloce's own `use_secure_defaults()`
+    # helper uses. Inert (browsers only honour HSTS over HTTPS), so it costs
+    # nothing in local HTTP development.
+    app.add_middleware(SecurityHeadersMiddleware, hsts_max_age=31536000)
     # htmx is vendored locally at app/static/js/htmx.min.js rather than pulled
     # from a CDN, so no external host needs to appear in the policy -- a CDN
     # entry here would be a trust dependency bought for nothing when the

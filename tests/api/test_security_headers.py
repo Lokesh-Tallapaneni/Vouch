@@ -25,6 +25,16 @@ def test_responses_carry_the_baseline_security_headers() -> None:
     assert headers["referrer-policy"] == "strict-origin-when-cross-origin"
 
 
+def test_the_hsts_header_is_present_with_a_one_year_max_age() -> None:
+    # Render terminates TLS and may inject its own Strict-Transport-Security,
+    # but depending on the platform for a security header is a weaker answer
+    # than setting it here (see app.main). Inert over plain HTTP, so this
+    # holds in the test client too.
+    with TestClient(create_app()) as client:
+        hsts = client.get("/health").headers["strict-transport-security"]
+    assert "max-age=31536000" in hsts
+
+
 def test_a_content_security_policy_is_present_and_forbids_inline_script() -> None:
     with TestClient(create_app()) as client:
         csp = client.get("/health").headers["content-security-policy"]
