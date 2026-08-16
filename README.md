@@ -203,6 +203,56 @@ run slowly.
 
 ---
 
+## Search
+
+The person and company typeahead (`app/db/cypher/search.py`) is a separate,
+much simpler query — worth its own honest account rather than a folded-in
+footnote, because the honest version turned out more interesting than the
+confident one would have been:
+
+```cypher
+MATCH (p:Person)
+WHERE toLower(p.name) STARTS WITH $term
+...
+```
+
+- **Prefix, not substring.** `STARTS WITH` is backed by the plain range
+  index `person_name` on `Person.name`, created in migration `0002`. Finding
+  "Meera" by typing "eera" would need a full-text index instead — a
+  deliberate scope line, not an oversight.
+- **Case-insensitivity comes from wrapping both sides in `toLower()`**, not
+  from a second stored lowercase field. Wrapping an indexed property in a
+  function is the textbook way to defeat a plain range index's seek
+  eligibility — the planner usually can't prove the wrapped expression
+  preserves the index's ordering, and falls back to a scan.
+
+**I tried to measure whether that's actually happening here, and the engine
+wouldn't answer.** `PROFILE` is accepted by CognoDB but returns no operator
+tree, so there's no plan to read a seek-vs-scan decision off of. I built a
+throwaway 40,000-node benchmark instead:
+
+| Form | Time |
+|---|---:|
+| Indexed, plain `STARTS WITH` | 655 ms |
+| Same predicate wrapped in `toLower()` | 771 ms |
+| Unindexed control | 628 ms |
+
+The unindexed scan came out *faster* than the indexed seek — at that size
+the index isn't measurably helping either way, and the roughly 500ms network
+round-trip to the instance dominates all three numbers enough that the gaps
+between them are noise, not signal.
+
+**Conclusion:** at the seeded 500-person scale, whether `toLower()` defeats
+the index is immaterial, and it was left as-is deliberately rather than
+optimised blind against a question today's tooling can't answer. If the
+dataset grew to where this mattered, the fix would be a stored lowercase
+property with its own index (or a full-text index, which would also solve
+substring search) — and the first step would be re-measuring on an instance
+where the difference is actually visible, not guessing from first
+principles.
+
+---
+
 ## Setup
 
 Dependencies are managed with [uv](https://docs.astral.sh/uv/); the whole
@@ -553,9 +603,10 @@ Naming these first is worth more than leaving them for a reviewer to find:
   a genuine 6-hop path to someone real would never be found. Given CognoDB's
   rejection of a parameterised bound (see Notes on CognoDB), raising the
   ceiling means editing a literal in the query text, not a config value.
-- **Prefix search, not substring.** The typeahead uses a range index
-  (`STARTS WITH`); finding "Meera" by typing "eera" would need a full-text
-  index, which is a scope line drawn on purpose rather than an oversight.
+- **Prefix search, not substring** (see [Search](#search) for the full
+  account, including the index-seek question I measured and couldn't fully
+  settle on this engine). Finding "Meera" by typing "eera" would need a
+  full-text index — a scope line drawn on purpose, not an oversight.
 - **A heuristic strength formula, not a learned one.** The weights in the
   tie-strength formula (same-team, shared projects, tenure overlap) are
   hand-picked to produce a plausible-looking distribution, not fit to any
