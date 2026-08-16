@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from veloce import Request, Response, Router
 
-from app.api.dependencies import ReferralServiceDep, SearchServiceDep, ViewerId
+from app.api.dependencies import NetworkServiceDep, ReferralServiceDep, SearchServiceDep, ViewerId
 from app.web.templating import templates
 
 router = Router(prefix="/fragments", tags=["fragments"])
@@ -50,4 +50,26 @@ async def routes_fragment(
     routes = await referrals.find_routes(viewer_id, target_id, max_hops=max_hops, limit=5)
     return templates.TemplateResponse(
         "_routes.html", {"request": request, "routes": routes, "max_hops": max_hops}
+    )
+
+
+@router.get("/brokers")
+async def brokers_fragment(request: Request, network: NetworkServiceDep) -> Response:
+    """The brokers panel, loaded lazily by network.html's shell.
+
+    Measured at ~3.9s against the live instance -- the slowest query an
+    evaluator can click. Kept as its own fragment (rather than folded into
+    the bus-factor one below) so a slow Brokers response never blocks the
+    faster bus-factor panel from appearing.
+    """
+    brokers = await network.find_brokers(limit=15)
+    return templates.TemplateResponse("_brokers.html", {"request": request, "brokers": brokers})
+
+
+@router.get("/bus-factor-risks")
+async def bus_factor_risks_fragment(request: Request, network: NetworkServiceDep) -> Response:
+    """The bus-factor panel, loaded lazily alongside brokers."""
+    risks = await network.find_bus_factor_risks(limit=25)
+    return templates.TemplateResponse(
+        "_bus_factor_risks.html", {"request": request, "risks": risks}
     )

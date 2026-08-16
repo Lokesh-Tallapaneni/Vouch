@@ -23,7 +23,6 @@ from veloce import Form, RedirectResponse, Request, Response, Router
 from app.api.dependencies import (
     AccountServiceDep,
     CurrentAccount,
-    NetworkServiceDep,
     PersonServiceDep,
     ReferralServiceDep,
     RequiredAccount,
@@ -193,18 +192,17 @@ async def show_company(
 
 
 @router.get("/network")
-async def show_network(
-    request: Request, network: NetworkServiceDep, account: CurrentAccount
-) -> Response:
-    """Network health: brokers and bus-factor risks."""
+async def show_network(request: Request, account: CurrentAccount) -> Response:
+    """Network health shell: brokers and bus-factor risks load lazily via
+    htmx (see fragments.py's brokers_fragment/bus_factor_risks_fragment).
+
+    Brokers alone runs ~3.9s against the live instance -- fetching it here,
+    before returning a response at all, would leave the browser painting
+    nothing for that whole time. Rendering the shell immediately and letting
+    each panel hx-get itself is what keeps this page from reading as hung.
+    """
     return templates.TemplateResponse(
-        "network.html",
-        {
-            "request": request,
-            "current_account": account,
-            "brokers": await network.find_brokers(limit=15),
-            "risks": await network.find_bus_factor_risks(limit=25),
-        },
+        "network.html", {"request": request, "current_account": account}
     )
 
 

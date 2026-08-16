@@ -1,5 +1,4 @@
 {% extends "base.html" %}
-{% from "_states.html" import empty %}
 {% block title %}Network health — Vouch{% endblock %}
 {% block content %}
   <h1>Network health</h1>
@@ -7,34 +6,29 @@
   <section aria-labelledby="brokers-heading">
     <h2 id="brokers-heading">Brokers</h2>
     <p>People who are the only bridge between two otherwise-disconnected teams.</p>
-    {% if brokers %}
-      <ol class="insiders">
-        {% for broker in brokers %}
-          <li>
-            <h3><a href="/people/{{ broker.person_id }}">{{ broker.name }}</a></h3>
-            <p>{{ broker.title }} · bridges <span class="confidence">{{ broker.bridged_pairs }}</span> team pair{{ "s" if broker.bridged_pairs != 1 else "" }}</p>
-          </li>
-        {% endfor %}
-      </ol>
-    {% else %}
-      {{ empty("No brokers found in the current network.") }}
-    {% endif %}
+    {# Loaded lazily rather than fetched in the page handler: this query
+       runs a three-node graph match and takes ~3.9s against the live
+       instance, the slowest thing on this page. Fetching it inline would
+       leave the browser showing nothing for that whole time -- hx-trigger
+       "load" fires the request the moment this div exists, so the shell
+       above (and the loading state below) paint first. #}
+    <div id="brokers-panel"
+         hx-get="/fragments/brokers" hx-trigger="load" hx-indicator="#brokers-panel" hx-swap="innerHTML">
+      <div class="htmx-indicator" role="status" aria-live="polite">
+        <span class="state__spinner" aria-hidden="true"></span>
+        Loading brokers — this query can take a few seconds…
+      </div>
+    </div>
   </section>
 
   <section aria-labelledby="bus-factor-heading">
     <h2 id="bus-factor-heading">Bus-factor risks</h2>
     <p>Skills on a project held by exactly one person.</p>
-    {% if risks %}
-      <ul>
-        {% for risk in risks %}
-          {# sole_holder is a name, not a person id (BUS_FACTOR_CYPHER's own
-             RETURN clause projects holders[0] from collect(DISTINCT p.name)) --
-             plain text, not a guessed-and-possibly-wrong profile link. #}
-          <li>{{ risk.project }} — {{ risk.skill }}: only {{ risk.sole_holder }}</li>
-        {% endfor %}
-      </ul>
-    {% else %}
-      {{ empty("No single points of failure found.") }}
-    {% endif %}
+    <div id="risks-panel"
+         hx-get="/fragments/bus-factor-risks" hx-trigger="load" hx-indicator="#risks-panel" hx-swap="innerHTML">
+      <div class="htmx-indicator" role="status" aria-live="polite">
+        <span class="state__spinner" aria-hidden="true"></span> Loading…
+      </div>
+    </div>
   </section>
 {% endblock %}

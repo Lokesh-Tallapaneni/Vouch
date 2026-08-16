@@ -1,0 +1,15 @@
+{# Lazy-loaded by network.html via hx-get="/fragments/bus-factor-risks",
+   alongside _brokers.html -- see that file for why this loads lazily too. #}
+{% from "_states.html" import empty %}
+{% if risks %}
+  <ul>
+    {% for risk in risks %}
+      {# sole_holder is a name, not a person id (BUS_FACTOR_CYPHER's own
+         RETURN clause projects holders[0] from collect(DISTINCT p.name)) --
+         plain text, not a guessed-and-possibly-wrong profile link. #}
+      <li>{{ risk.project }} — {{ risk.skill }}: only {{ risk.sole_holder }}</li>
+    {% endfor %}
+  </ul>
+{% else %}
+  {{ empty("No single points of failure found.") }}
+{% endif %}

@@ -70,7 +70,19 @@ def test_the_profile_edit_page_redirects_when_signed_out() -> None:
     assert response.status_code in (302, 303, 307)
 
 
-def test_the_network_page_renders_brokers_and_bus_factor_risks() -> None:
+def test_the_network_page_renders_a_shell_that_lazy_loads_both_panels() -> None:
+    # Brokers takes ~3.9s against the live instance -- a page that blocks on
+    # it would render nothing until then. The shell must come back fast and
+    # wire each panel to load itself via htmx, not fetch the data inline.
+    with _client(FakeGraph({})) as client:
+        response = client.get("/network")
+    assert response.status_code == 200
+    assert 'hx-get="/fragments/brokers"' in response.text
+    assert 'hx-get="/fragments/bus-factor-risks"' in response.text
+    assert 'hx-trigger="load"' in response.text
+
+
+def test_the_brokers_fragment_renders_matching_people() -> None:
     graph = FakeGraph(
         {
             "MATCH (a:Person)-[:KNOWS]-(b:Person)-[:KNOWS]-(c:Person)": [
@@ -80,26 +92,41 @@ def test_the_network_page_renders_brokers_and_bus_factor_risks() -> None:
                     "title": "Tech Lead",
                     "bridged_pairs": 3,
                 }
-            ],
-            "MATCH (pr:Project)<-[:WORKS_ON]-(p:Person)-[:HAS_SKILL]->(s:Skill)": [
-                {"project": "Atlas", "skill": "Kafka", "sole_holder": "Meera Iyer"}
-            ],
+            ]
         }
     )
     with _client(graph) as client:
-        response = client.get("/network")
+        response = client.get("/fragments/brokers")
     assert response.status_code == 200
     assert "Arjun Rao" in response.text
+
+
+def test_the_brokers_fragment_renders_an_empty_state_with_no_data() -> None:
+    with _client(FakeGraph({})) as client:
+        response = client.get("/fragments/brokers")
+    assert response.status_code == 200
+    assert "state--empty" in response.text
+
+
+def test_the_bus_factor_fragment_renders_matching_risks() -> None:
+    graph = FakeGraph(
+        {
+            "MATCH (pr:Project)<-[:WORKS_ON]-(p:Person)-[:HAS_SKILL]->(s:Skill)": [
+                {"project": "Atlas", "skill": "Kafka", "sole_holder": "Meera Iyer"}
+            ]
+        }
+    )
+    with _client(graph) as client:
+        response = client.get("/fragments/bus-factor-risks")
+    assert response.status_code == 200
     assert "Meera Iyer" in response.text
 
 
-def test_the_network_page_renders_empty_states_with_no_data() -> None:
+def test_the_bus_factor_fragment_renders_an_empty_state_with_no_data() -> None:
     with _client(FakeGraph({})) as client:
-        response = client.get("/network")
+        response = client.get("/fragments/bus-factor-risks")
     assert response.status_code == 200
-    # Two independent empty sections (brokers, bus-factor risks); each must
-    # say so rather than rendering a blank list.
-    assert response.text.count("state--empty") >= 2
+    assert "state--empty" in response.text
 
 
 def test_sign_in_page_carries_the_csrf_token_the_form_will_need() -> None:

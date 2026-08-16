@@ -1,0 +1,17 @@
+{# Lazy-loaded by network.html via hx-get="/fragments/brokers" -- Brokers
+   runs a three-node graph match and takes ~3.9s against the live instance,
+   the slowest thing an evaluator can click, so the shell renders instantly
+   and this fills in once ready rather than blocking the whole page. #}
+{% from "_states.html" import empty %}
+{% if brokers %}
+  <ol class="insiders">
+    {% for broker in brokers %}
+      <li>
+        <h3><a href="/people/{{ broker.person_id }}">{{ broker.name }}</a></h3>
+        <p>{{ broker.title }} · bridges <span class="confidence">{{ broker.bridged_pairs }}</span> team pair{{ "s" if broker.bridged_pairs != 1 else "" }}</p>
+      </li>
+    {% endfor %}
+  </ol>
+{% else %}
+  {{ empty("No brokers found in the current network.") }}
+{% endif %}
