@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Edit your profile — Vouch{% endblock %}
+{% block content %}
+  <h1>Edit your profile</h1>
+  <form method="post" action="/profile">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <p>
+      <label for="profile-name">Name</label><br>
+      <input type="text" id="profile-name" name="name" value="{{ profile.name }}" maxlength="120">
+      {% if errors.name %}<br><span class="field-error">{{ errors.name }}</span>{% endif %}
+    </p>
+    <p>
+      <label for="profile-title">Title</label><br>
+      <input type="text" id="profile-title" name="title" value="{{ profile.title }}" maxlength="120">
+      {% if errors.title %}<br><span class="field-error">{{ errors.title }}</span>{% endif %}
+    </p>
+    <p>
+      <label for="profile-seniority">Seniority</label><br>
+      <input type="text" id="profile-seniority" name="seniority" value="{{ profile.seniority }}" maxlength="40">
+      {% if errors.seniority %}<br><span class="field-error">{{ errors.seniority }}</span>{% endif %}
+    </p>
+    <p>
+      <label for="profile-headline">Headline</label><br>
+      <input type="text" id="profile-headline" name="headline" value="{{ profile.headline }}" maxlength="280">
+      {% if errors.headline %}<br><span class="field-error">{{ errors.headline }}</span>{% endif %}
+    </p>
+    <p>Leave a field as it is to keep its current value -- a blank field is
+       never sent as an update.</p>
+    <button type="submit">Save</button>
+  </form>
+{% endblock %}

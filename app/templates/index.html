@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Vouch — find your way in{% endblock %}
+{% block content %}
+  <h1>Who can introduce you?</h1>
+  <p>Vouch finds the strongest chain of people between you and someone at a
+     company you want to reach, with a confidence score computed along the
+     whole path — not just a hop count.</p>
+
+  <section aria-labelledby="find-person-heading">
+    <h2 id="find-person-heading">Find a person</h2>
+    <div class="search-box" id="person-search">
+      <label for="person-search-input">Search people by name</label>
+      <input type="search" name="q" id="person-search-input" autocomplete="off"
+             placeholder="e.g. Priya Sharma"
+             hx-get="/fragments/search?kind=person"
+             hx-trigger="keyup changed delay:250ms"
+             hx-target="#person-search-results"
+             hx-indicator="#person-search">
+      <div class="htmx-indicator" role="status" aria-live="polite">
+        <span class="state__spinner" aria-hidden="true"></span> Searching…
+      </div>
+      <div id="person-search-results" role="region" aria-live="polite"></div>
+    </div>
+  </section>
+
+  <section aria-labelledby="find-company-heading">
+    <h2 id="find-company-heading">Reach into a company</h2>
+    <div class="chips" role="group" aria-label="Suggested companies">
+      {% for name in suggestions %}
+        <a class="chip" href="/companies/{{ name }}">{{ name }}</a>
+      {% endfor %}
+    </div>
+    <div class="search-box" id="company-search">
+      <label for="company-search-input">Or search all companies</label>
+      <input type="search" name="q" id="company-search-input" autocomplete="off"
+             placeholder="e.g. Everline"
+             hx-get="/fragments/search?kind=company"
+             hx-trigger="keyup changed delay:250ms"
+             hx-target="#company-search-results"
+             hx-indicator="#company-search">
+      <div class="htmx-indicator" role="status" aria-live="polite">
+        <span class="state__spinner" aria-hidden="true"></span> Searching…
+      </div>
+      <div id="company-search-results" role="region" aria-live="polite"></div>
+    </div>
+  </section>
+{% endblock %}

@@ -1,0 +1,14 @@
+{% from "_states.html" import empty %}
+{% if results %}
+  <ul class="results" role="listbox">
+    {% for result in results %}
+      <li role="option"><a href="{{ result.href }}">{{ result.label }}
+        {% if result.detail %}<span class="confidence">{{ result.detail }}</span>{% endif %}
+      </a></li>
+    {% endfor %}
+  </ul>
+{% elif term|length >= 2 %}
+  {{ empty('No matches for “' ~ term ~ '”.') }}
+{% else %}
+  {{ empty("Type at least two characters.") }}
+{% endif %}

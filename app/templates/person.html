@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% from "_states.html" import empty %}
+{% block title %}{{ profile.name }} — Vouch{% endblock %}
+{% block content %}
+  <h1>{{ profile.name }}</h1>
+  <p>{{ profile.title }}{% if profile.seniority %} · {{ profile.seniority }}{% endif %}</p>
+  {% if profile.headline %}<p>{{ profile.headline }}</p>{% endif %}
+  {% if profile.team %}<p>Team: {{ profile.team }}</p>{% endif %}
+
+  {% if not is_self %}
+    <section aria-labelledby="route-heading">
+      <h2 id="route-heading">Your route to {{ profile.name }}</h2>
+      {% include "_routes.html" %}
+    </section>
+  {% endif %}
+
+  <section aria-labelledby="employment-heading">
+    <h2 id="employment-heading">Employment</h2>
+    {% if profile.employment %}
+      <ul>
+        {% for job in profile.employment %}
+          <li>{{ job.company }} ({{ job.from_year }}–{{ job.to_year or "present" }}){% if job.is_current %} · current{% endif %}</li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      {{ empty("No employment on record.") }}
+    {% endif %}
+  </section>
+
+  <section aria-labelledby="skills-heading">
+    <h2 id="skills-heading">Skills</h2>
+    {% if profile.skills %}
+      <ul>{% for skill in profile.skills %}<li>{{ skill }}</li>{% endfor %}</ul>
+    {% else %}
+      {{ empty("No skills on record.") }}
+    {% endif %}
+  </section>
+
+  <section aria-labelledby="projects-heading">
+    <h2 id="projects-heading">Projects</h2>
+    {% if profile.projects %}
+      <ul>{% for project in profile.projects %}<li>{{ project }}</li>{% endfor %}</ul>
+    {% else %}
+      {{ empty("No projects on record.") }}
+    {% endif %}
+  </section>
+
+  {% if not is_self %}
+    <section aria-labelledby="mutuals-heading">
+      <h2 id="mutuals-heading">People you both know</h2>
+      {% if profile.mutual_connections %}
+        <ul>{% for name in profile.mutual_connections %}<li>{{ name }}</li>{% endfor %}</ul>
+      {% else %}
+        {{ empty("No mutual connections.") }}
+      {% endif %}
+    </section>
+  {% endif %}
+{% endblock %}

@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{# Imported under an alias: the context already has an `error` variable (the
+   message string, or None) -- importing the macro under its own name would
+   shadow that variable rather than complement it. #}
+{% from "_states.html" import error as error_state %}
+{% block title %}Sign in — Vouch{% endblock %}
+{% block content %}
+  <h1>Sign in</h1>
+  {% if error %}{{ error_state(error) }}{% endif %}
+  <form method="post" action="/sign-in">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <p>
+      <label for="sign-in-email">Email</label><br>
+      <input type="email" id="sign-in-email" name="email" required autocomplete="email">
+    </p>
+    <p>
+      <label for="sign-in-password">Password</label><br>
+      <input type="password" id="sign-in-password" name="password" required autocomplete="current-password">
+    </p>
+    <button type="submit">Sign in</button>
+  </form>
+  <p>No account? <a href="/sign-up">Sign up</a>.</p>
+{% endblock %}

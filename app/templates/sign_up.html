@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{# Imported under an alias -- see sign_in.html for why: the context already
+   carries an `error` variable, and importing the macro under its own name
+   would shadow it. #}
+{% from "_states.html" import error as error_state %}
+{% block title %}Sign up — Vouch{% endblock %}
+{% block content %}
+  <h1>Sign up</h1>
+  <p>Sign-up claims an existing person in the seeded network rather than
+     creating a new one, so your account starts with real connections to
+     find routes through. Search on the <a href="/">landing page</a> first
+     to find your person id if you don't already know it.</p>
+  {% if error %}{{ error_state(error) }}{% endif %}
+  <form method="post" action="/sign-up">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <p>
+      <label for="sign-up-person-id">Your person id</label><br>
+      <input type="text" id="sign-up-person-id" name="person_id" required placeholder="e.g. p0042">
+    </p>
+    <p>
+      <label for="sign-up-email">Email</label><br>
+      <input type="email" id="sign-up-email" name="email" required autocomplete="email">
+    </p>
+    <p>
+      <label for="sign-up-password">Password</label><br>
+      <input type="password" id="sign-up-password" name="password" required
+             minlength="10" autocomplete="new-password">
+    </p>
+    <button type="submit">Sign up</button>
+  </form>
+  <p>Already have an account? <a href="/sign-in">Sign in</a>.</p>
+{% endblock %}

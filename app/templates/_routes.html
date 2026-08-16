@@ -1,0 +1,10 @@
+{% from "_states.html" import empty %}
+{% if routes %}
+  <ol class="routes">
+    {% for route in routes %}
+      <li>{% include "_chain.html" %}</li>
+    {% endfor %}
+  </ol>
+{% else %}
+  {{ empty("No route within " ~ max_hops ~ " hops. Try a different person, or widen the search.") }}
+{% endif %}

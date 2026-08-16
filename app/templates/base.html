@@ -19,6 +19,12 @@
   <script src="/static/js/htmx.min.js"
           integrity="sha384-HGfztofotfshcF7+8n44JQL2oJmowVChPTg48S+jvZoztPfvwD79OC/LTtG6dMp+"
           defer></script>
+  {# First-party, not vendored -- no integrity hash: unlike htmx.min.js this
+     file is ours, edited in place as the app changes, and same-origin
+     already is the trust boundary CSP's script-src 'self' enforces. Wires
+     every htmx write request (starting with sign-out in _header.html) with
+     the CSRF header CSRFMiddleware requires -- see the file itself. #}
+  <script src="/static/js/csrf.js" defer></script>
   {% block head %}{% endblock %}
 </head>
 <body>

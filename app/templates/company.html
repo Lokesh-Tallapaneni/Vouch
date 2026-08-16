@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% from "_states.html" import empty %}
+{% block title %}{{ company }} — Vouch{% endblock %}
+{% block content %}
+  <h1>Reach into {{ company }}</h1>
+  <p>People currently at {{ company }}, ranked by how well you can reach them
+     within {{ max_hops }} hops.</p>
+
+  {% if insiders %}
+    <ol class="insiders">
+      {% for insider in insiders %}
+        <li>
+          <h2><a href="/people/{{ insider.person_id }}">{{ insider.name }}</a></h2>
+          <p>{{ insider.title }}</p>
+          {% set route = insider.route %}
+          {% include "_chain.html" %}
+        </li>
+      {% endfor %}
+    </ol>
+  {% else %}
+    {{ empty(
+      "No route to anyone at " ~ company ~ " within " ~ max_hops ~ " hops.",
+      "Back to search", "/"
+    ) }}
+  {% endif %}
+{% endblock %}
