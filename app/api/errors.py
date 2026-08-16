@@ -33,13 +33,27 @@ triggered it without needing a timestamp match.
 
 from __future__ import annotations
 
-from veloce import JSONResponse, Request, Veloce
+from veloce import JSONResponse, Request, Response, Veloce
 from veloce.exceptions import HTTPException
 
 from app.core.exceptions import VouchError
 from app.core.logging import get_logger
 
 log = get_logger("errors")
+
+#: Headings for the HTML error page. A person needs to know whether the thing
+#: they asked for is missing, whether they are allowed to see it, or whether
+#: the app itself is having trouble -- three different next actions. 503 is
+#: called out by name because on a free-tier instance it is the likeliest
+#: failure and the one that fixes itself.
+_HEADINGS: dict[int, str] = {
+    401: "Sign in to continue",
+    403: "That request was blocked",
+    404: "Not found",
+    409: "That already exists",
+    422: "Check that form",
+    503: "The database is unreachable",
+}
 
 
 def _error_body(detail: object, request: Request) -> dict[str, object]:
@@ -53,7 +67,53 @@ def _error_body(detail: object, request: Request) -> dict[str, object]:
     return {"detail": detail, "reference": request.state.get("request_id")}
 
 
-async def handle_vouch_error(request: Request, exc: VouchError) -> JSONResponse:
+def _wants_html(request: Request) -> bool:
+    """True when this request came from a browser navigation.
+
+    An error on ``/api/v1/...`` should stay JSON -- that is the contract a
+    client is coding against. An error on a page a person clicked to should
+    be a page. Without this split, a failing navigation renders the JSON
+    body as plain text in the viewport, which is how "graceful error
+    handling when the database is unreachable" turns into a wall of
+    ``{"detail": ...}``.
+
+    Decided on the ``Accept`` header rather than the path: htmx sends
+    ``text/html`` too, so a fragment request correctly gets markup it can
+    swap in, and a `fetch()` asking for JSON gets JSON from the same route.
+    """
+    return "text/html" in request.headers.get("accept", "")
+
+
+def _render(request: Request, *, status: int, heading: str, message: object) -> Response:
+    """One error, in whichever form the caller asked for.
+
+    Imports the web layer's Jinja environment lazily. These handlers are
+    registered app-wide (they serve ``/api/v1`` and the HTML pages alike),
+    so reaching the templates is deliberate rather than a layering slip --
+    but a module-level import would run at import time for API-only
+    consumers too, and the lazy call keeps ``app.api`` importable without
+    dragging templates in.
+    """
+    if not _wants_html(request):
+        return JSONResponse(_error_body(message, request), status_code=status)
+
+    from app.web.templating import templates
+
+    return templates.TemplateResponse(
+        "error.html",
+        {
+            "request": request,
+            "current_account": None,
+            "current_account_name": None,
+            "heading": heading,
+            "message": message,
+            "reference": request.state.get("request_id"),
+        },
+        status_code=status,
+    )
+
+
+async def handle_vouch_error(request: Request, exc: VouchError) -> Response:
     """Map a deliberate application error to its status code.
 
     Severity, not uniformity, decides the log level: a 404 is routine traffic
@@ -65,10 +125,15 @@ async def handle_vouch_error(request: Request, exc: VouchError) -> JSONResponse:
         log.error("%s on %s: %s", type(exc).__name__, request.url.path, exc)
     else:
         log.info("%s on %s", type(exc).__name__, request.url.path)
-    return JSONResponse(_error_body(exc.user_message, request), status_code=exc.status_code)
+    return _render(
+        request,
+        status=exc.status_code,
+        heading=_HEADINGS.get(exc.status_code, "Something went wrong"),
+        message=exc.user_message,
+    )
 
 
-async def handle_http_exception(request: Request, exc: HTTPException) -> JSONResponse:
+async def handle_http_exception(request: Request, exc: HTTPException) -> Response:
     """Preserve Veloce's own status code and detail for a framework exception.
 
     Not a hand-rolled reimplementation for its own sake: with no handler
@@ -90,12 +155,21 @@ async def handle_http_exception(request: Request, exc: HTTPException) -> JSONRes
         log.info("%s on %s", type(exc).__name__, request.url.path)
     structured = getattr(exc, "errors", None)
     detail = structured if structured is not None else (exc.detail or "Error")
+    if _wants_html(request) and not isinstance(detail, list):
+        response = _render(
+            request,
+            status=exc.status_code,
+            heading=_HEADINGS.get(exc.status_code, "Something went wrong"),
+            message=detail,
+        )
+        response.headers.update(exc.headers or {})
+        return response
     return JSONResponse(
         _error_body(detail, request), status_code=exc.status_code, headers=exc.headers
     )
 
 
-async def handle_unexpected_error(request: Request, exc: Exception) -> JSONResponse:
+async def handle_unexpected_error(request: Request, exc: Exception) -> Response:
     """Catch-all. Logs the real cause, tells the user nothing about internals.
 
     An unhandled exception reaching here is a bug, so it is logged with a full
@@ -105,7 +179,12 @@ async def handle_unexpected_error(request: Request, exc: Exception) -> JSONRespo
     the exception interpolated into the response.
     """
     log.exception("unhandled error on %s", request.url.path)
-    return JSONResponse(_error_body("Something went wrong on our side.", request), status_code=500)
+    return _render(
+        request,
+        status=500,
+        heading="Something went wrong",
+        message="Something went wrong on our side.",
+    )
 
 
 def register_exception_handlers(app: Veloce) -> None:
