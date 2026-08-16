@@ -283,7 +283,16 @@ class GraphClient:
             result = await self._driver.execute_query(
                 self._query(cypher, timeout), dict(params or {}), routing_=routing
             )
-        except (ServiceUnavailable, AuthError) as exc:
+        except (ServiceUnavailable, AuthError, ValueError) as exc:
+            # ValueError belongs here, unintuitive as that looks. When the
+            # host in COGNODB_URI does not resolve, the driver does not raise
+            # ServiceUnavailable -- it raises a bare
+            # `ValueError("Cannot resolve address ...")` from its DNS helper
+            # (neo4j/_async_compat/network/_util.py). Without this, a
+            # mistyped or down host escapes every handler as an unhandled
+            # 500 with a driver stack trace, which is precisely the
+            # "database unreachable" case that must degrade gracefully.
+            # Verified by pointing the app at an unresolvable host.
             raise self._unavailable(exc) from exc
         except ClientError as exc:
             if exc.code in _TIMEOUT_CODES:
@@ -335,7 +344,16 @@ class GraphClient:
             async with self.session(readonly=False) as session:
                 result = await session.run(self._query(statement, timeout))
                 await result.consume()
-        except (ServiceUnavailable, AuthError) as exc:
+        except (ServiceUnavailable, AuthError, ValueError) as exc:
+            # ValueError belongs here, unintuitive as that looks. When the
+            # host in COGNODB_URI does not resolve, the driver does not raise
+            # ServiceUnavailable -- it raises a bare
+            # `ValueError("Cannot resolve address ...")` from its DNS helper
+            # (neo4j/_async_compat/network/_util.py). Without this, a
+            # mistyped or down host escapes every handler as an unhandled
+            # 500 with a driver stack trace, which is precisely the
+            # "database unreachable" case that must degrade gracefully.
+            # Verified by pointing the app at an unresolvable host.
             raise self._unavailable(exc) from exc
 
     # -- health ------------------------------------------------------------

@@ -4,29 +4,37 @@
 network can introduce you, through what chain of people, and how strong is
 each link in that chain?
 
-<!-- PLACEHOLDER (owner: whoever ships the deploy): CI badge, demo link, recording link.
-     Uncomment and fill in once the demo is live and the recording is uploaded.
-
 [![CI](https://github.com/Lokesh-Tallapaneni/Vouch/actions/workflows/ci.yml/badge.svg)](https://github.com/Lokesh-Tallapaneni/Vouch/actions/workflows/ci.yml)
 
-**[Live demo →](TODO)** — cold starts: the free instance and the free host both
-spin down when idle, so the first request after a quiet period can take
-10–20s while they wake up. Refresh once if the first load times out. The app
-is loaded once (any page) before this email goes out specifically so an
-evaluator's first click lands warm rather than cold — see the query timing
-table for why a cold connection pool alone adds ~1.4s on top of that.
+**[Live demo →](https://vouch-g4tk.onrender.com/)** — no sign-up needed; every
+page works signed out, browsing as the seeded protagonist. Both the free
+database instance and the free host spin down when idle, so the first request
+after a quiet period can take 10–20s while they wake. Refresh once if the
+first load is slow.
 
-**[90-second recording →](TODO)**
--->
+<!-- Recording link goes here once uploaded. -->
 
-> 🚧 Demo link, recording and screenshots go in above once the deploy and
-> recording are done — see this repo's open items. Everything below describes
-> what is actually built and measured against the live instance today.
+---
 
-<!-- PLACEHOLDER (owner: whoever ships the deploy): three screenshots above the
-     fold — company insiders with the chain visible, a route fragment at 3–4
-     hops, and an error/empty state. Add as
-     `![Company insiders](docs/screenshot-insiders.png)` once captured. -->
+Reach into a company and see who can introduce you, ranked by how strong the
+route is rather than how few hops it takes:
+
+![The company page: everyone reachable at Halcyon Media, grouped by the person
+you would actually ask, with the shared first hop drawn once above the
+list](docs/screenshot-insiders.png)
+
+Open any route to see the full chain and a pre-written introduction message,
+addressed to the first person in it:
+
+![A four-hop route to Tara Silva, showing each connection's type and strength,
+and an editable draft message asking Ananya Kowalski for the
+introduction](docs/screenshot-route.png)
+
+The landing page, which explains the product by drawing a route rather than
+describing one:
+
+![The Vouch landing page, with an example route diagram and entry points for
+searching companies or people](docs/screenshot-landing.png)
 
 ---
 

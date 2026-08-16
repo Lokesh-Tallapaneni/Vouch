@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{# The page a browser gets when a request fails. Without it, a navigation
+   that hits an error renders the API's JSON body as plain text in the
+   viewport -- correct for a client calling /api/v1, useless to a person who
+   clicked a link. See app/api/errors.py's content negotiation.
+
+   Deliberately says what to do next rather than only what went wrong: the
+   most common cause here is the free-tier database being briefly
+   unreachable, which resolves itself, so "try again" is genuinely the right
+   advice rather than a platitude. #}
+{% block title %}{{ heading }} — Vouch{% endblock %}
+{% block content %}
+  <section class="state state--error" role="alert">
+    <h1>{{ heading }}</h1>
+    <p class="lede">{{ message }}</p>
+
+    <p>
+      <a class="chip" href="/">Back to the start</a>
+    </p>
+
+    {% if reference %}
+      {# The request id RequestIDMiddleware already minted. Quoting it turns
+         "it broke" into something traceable to one log line. #}
+      <p class="row-head__meta">Reference: <code>{{ reference }}</code></p>
+    {% endif %}
+  </section>
+{% endblock %}

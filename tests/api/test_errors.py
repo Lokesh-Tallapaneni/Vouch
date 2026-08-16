@@ -149,3 +149,32 @@ def test_no_response_body_ever_carries_a_traceback_class_name_or_internal_path()
         assert "app/db" not in body
         assert "RuntimeError" not in body
         assert "GraphUnavailableError" not in body
+
+
+def test_a_browser_navigation_gets_an_html_error_page_not_json() -> None:
+    # Requirement 5.3: graceful handling when the database is unreachable.
+    # Someone who clicked a link must land on a page, not on the API's JSON
+    # body rendered as plain text in the viewport.
+    with _client_raising("/_test/down", GraphUnavailableError) as client:
+        response = client.get("/_test/down", headers={"accept": "text/html"})
+    assert response.status_code == 503
+    assert "text/html" in response.headers["content-type"]
+    assert "The database is unreachable" in response.text
+    assert '{"detail"' not in response.text
+
+
+def test_an_api_client_still_gets_json_for_the_same_failure() -> None:
+    # The split is on Accept, not on path: a client coding against the JSON
+    # API must keep getting JSON from the identical failure.
+    with _client_raising("/_test/down", GraphUnavailableError) as client:
+        response = client.get("/_test/down", headers={"accept": "application/json"})
+    assert response.status_code == 503
+    assert response.json()["detail"] == GraphUnavailableError().user_message
+
+
+def test_the_html_error_page_carries_the_request_reference() -> None:
+    # The reference is what turns "it broke" into one traceable log line;
+    # it exists in the JSON body and must not be dropped in the HTML one.
+    with _client_raising("/_test/down", GraphUnavailableError) as client:
+        response = client.get("/_test/down", headers={"accept": "text/html"})
+    assert "Reference:" in response.text
