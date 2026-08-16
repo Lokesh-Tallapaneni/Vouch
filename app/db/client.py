@@ -368,7 +368,7 @@ class GraphClient:
         traversal runs until the server gives up, holding a pooled connection
         the whole time.
         """
-        return Query(cypher, timeout=timeout or self._settings.query_timeout_s)  # type: ignore[arg-type]
+        return Query(cypher, timeout=timeout or self._settings.query_timeout_s)
 
     @staticmethod
     def _unavailable(exc: Exception) -> GraphUnavailableError:

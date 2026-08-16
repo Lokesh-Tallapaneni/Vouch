@@ -12,7 +12,7 @@ signatures read as types rather than as plumbing::
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, cast
 
 from veloce import Depends, HTTPException, Request
 
@@ -29,7 +29,9 @@ from app.services.search_service import SearchService
 
 def get_graph(request: Request) -> GraphClient:
     """Return the process-wide graph client created by the lifespan."""
-    return request.app.state.graph
+    # `state` is untyped (`Any` attribute access); the lifespan is what actually
+    # guarantees this is a GraphClient, and mypy has no visibility into it.
+    return cast(GraphClient, request.app.state.graph)
 
 
 def get_settings_dep(request: Request) -> Settings:
@@ -38,7 +40,9 @@ def get_settings_dep(request: Request) -> Settings:
     Reads from app state rather than calling ``get_settings()`` again so that a
     test overriding settings changes them everywhere, not just at boot.
     """
-    return request.app.state.settings
+    # Same as `get_graph` above: the lifespan guarantees the type, not the type
+    # checker.
+    return cast(Settings, request.app.state.settings)
 
 
 #: Handler-signature aliases.

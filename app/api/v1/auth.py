@@ -15,11 +15,13 @@ second, harmless one.
 
 from __future__ import annotations
 
+from typing import TypedDict
+
 from veloce import JSONResponse, Response, Router
 
 from app.api.dependencies import AccountServiceDep, CurrentAccount, SettingsDep
 from app.core.security import SESSION_COOKIE_NAME, issue_session_token
-from app.models.account import Account, SessionClaims
+from app.models.account import Account, AccountCreate, Credentials, SessionClaims
 from app.schemas.auth import AccountResponse, LoginRequest, RegisterRequest
 from app.schemas.common import AUTH_RESPONSES, ERROR_RESPONSES, ErrorResponse
 
@@ -27,9 +29,21 @@ router = Router(prefix="/auth", tags=["auth"])
 
 _COOKIE_MAX_AGE_SECONDS = 24 * 60 * 60
 
+
+class _CookieFlags(TypedDict):
+    """The subset of `Response.set_cookie`/`delete_cookie` keyword arguments
+    that must match between the two calls for a deletion to actually replace
+    the cookie a login set (see module docstring)."""
+
+    path: str
+    httponly: bool
+    secure: bool
+    samesite: str
+
+
 #: The one place the cookie's browser-facing attributes are decided. Passed
 #: identically to `set_cookie` (below) and `delete_cookie` (in `log_out`).
-_COOKIE_FLAGS: dict[str, object] = {
+_COOKIE_FLAGS: _CookieFlags = {
     "path": "/",
     "httponly": True,
     "secure": True,
@@ -64,7 +78,7 @@ async def register_account(
     payload: RegisterRequest, accounts: AccountServiceDep, settings: SettingsDep
 ) -> Response:
     """Create an account and sign the new user straight in."""
-    account = await accounts.register(payload)
+    account = await accounts.register(AccountCreate.model_validate(payload.model_dump()))
     response = JSONResponse(account.model_dump(mode="json"), status_code=201)
     return _attach_session(response, account, settings.jwt_secret.get_secret_value())
 
@@ -84,7 +98,7 @@ async def log_in(
     One message for both failure modes, so the endpoint is not an
     account-enumeration oracle.
     """
-    account = await accounts.authenticate(payload)
+    account = await accounts.authenticate(Credentials.model_validate(payload.model_dump()))
     if account is None:
         return JSONResponse({"detail": "Those credentials didn't match."}, status_code=401)
     response = JSONResponse(account.model_dump(mode="json"))

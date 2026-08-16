@@ -3,9 +3,11 @@ from __future__ import annotations
 import pytest
 from veloce import Router, TestClient
 
-from app.api.dependencies import RequiredAccount, get_graph
+from app.api.dependencies import RequiredAccount, get_account_service, get_graph
 from app.core.security import SESSION_COOKIE_NAME, hash_account_password
 from app.main import create_app
+from app.models.account import Account, AccountCreate, Credentials
+from app.services.account_service import AccountService
 from tests.support.fake_graph import FakeGraph
 
 PASSWORD = "correct horse battery"
@@ -197,6 +199,61 @@ def test_register_creates_an_account_and_signs_it_in(client_and_graph) -> None:
     assert "password_hash" not in response.text
     cookie = response.headers["set-cookie"]
     assert SESSION_COOKIE_NAME in cookie and "HttpOnly" in cookie
+
+
+def test_register_and_login_convert_the_wire_schema_before_calling_the_service() -> None:
+    """`register_account`/`log_in` must hand `AccountService` the
+    `AccountCreate`/`Credentials` models its methods declare, not the
+    `RegisterRequest`/`LoginRequest` schemas the handlers receive off the
+    wire. The two pairs are field-for-field identical, so a regression that
+    passed the schema straight through would still satisfy every
+    response-shape assertion elsewhere in this file -- mypy caught it, not a
+    behavioural difference. Only checking the type that actually crosses the
+    service boundary catches a reintroduced shortcut here.
+    """
+    graph = FakeGraph(
+        {
+            "RETURN p.id AS id": [{"id": "me"}],
+            "MERGE (a:Account": [
+                {
+                    "id": "acc-1",
+                    "email": "a@b.com",
+                    "person_id": "me",
+                    "created_at": "2026-08-16T10:00:00Z",
+                }
+            ],
+        }
+    )
+    _with_login_row(graph)
+    received: dict[str, type] = {}
+
+    class _SpyAccountService(AccountService):
+        async def register(self, data: AccountCreate) -> Account:
+            received["register"] = type(data)
+            return await super().register(data)
+
+        async def authenticate(self, creds: Credentials) -> Account | None:
+            received["authenticate"] = type(creds)
+            return await super().authenticate(creds)
+
+    app = create_app()
+    app.dependency_overrides[get_account_service] = lambda: _SpyAccountService(graph)
+    with TestClient(app) as client:
+        client.get("/health")  # primes the CSRF cookie both writes below echo
+        client.post(
+            "/api/v1/auth/register",
+            json={"email": "a@b.com", "password": PASSWORD, "person_id": "me"},
+            headers=_csrf(client),
+        )
+        client.post(
+            "/api/v1/auth/login",
+            json={"email": "a@b.com", "password": PASSWORD},
+            headers=_csrf(client),
+        )
+    app.dependency_overrides.clear()
+
+    assert received["register"] is AccountCreate
+    assert received["authenticate"] is Credentials
 
 
 def test_require_account_rejects_an_unauthenticated_write() -> None:
