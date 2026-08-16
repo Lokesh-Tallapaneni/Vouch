@@ -326,6 +326,27 @@ async def submit_sign_up(
     return response
 
 
+@router.post("/sign-out")
+async def submit_sign_out(request: Request) -> Response:
+    """Clear the session cookie and redirect home -- via a response header,
+    not client-side script.
+
+    `_header.html`'s sign-out button used to POST straight to the JSON API's
+    `/api/v1/auth/logout` and rely on `hx-on::after-request` to redirect
+    afterwards. htmx compiles `hx-on` handlers through `new Function()`,
+    which this app's CSP (`script-src 'self'`, no `unsafe-eval`) blocks: the
+    POST succeeded and the cookie was cleared, but the eval threw silently,
+    so the redirect never fired -- a signed-out user kept seeing their own
+    email in the header until a manual reload. `HX-Redirect` is a response
+    header htmx honours natively, with no script execution at all, so this
+    is a dedicated web-layer route (same reasoning as submit_sign_in) rather
+    than weakening the CSP for one button.
+    """
+    response = Response(status_code=204, headers={"HX-Redirect": "/"})
+    response.delete_cookie(SESSION_COOKIE_NAME, **_SESSION_COOKIE_FLAGS)
+    return response
+
+
 @router.get("/profile")
 async def show_profile_edit(
     request: Request, account: CurrentAccount, people: PersonServiceDep

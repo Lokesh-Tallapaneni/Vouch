@@ -51,6 +51,22 @@ def test_a_profile_page_renders_the_person_name() -> None:
     assert "Priya Sharma" in response.text
 
 
+def test_signed_out_pages_explain_whose_network_it_is() -> None:
+    # A reviewer landing on any page while signed out is browsing as the
+    # demo protagonist -- the header has to say so, or every chain on the
+    # site starts from an unexplained stranger.
+    with _client(FakeGraph({})) as client:
+        response = client.get("/")
+    assert "Lokesh Tallapaneni" in response.text
+
+
+def test_the_demo_accounts_own_profile_explains_itself() -> None:
+    protagonist_row = {**PROFILE_ROW, "id": "me", "name": "Lokesh Tallapaneni"}
+    with _client(FakeGraph({"OPTIONAL MATCH": [protagonist_row]})) as client:
+        response = client.get("/people/me")
+    assert "demo account" in response.text
+
+
 def test_search_with_no_matches_renders_a_visible_empty_state() -> None:
     # An empty dropdown reads as a broken feature. Say "no matches" instead.
     with _client(FakeGraph({})) as client:
@@ -219,6 +235,20 @@ def test_signing_up_with_an_unknown_person_id_rerenders_with_an_error() -> None:
     assert response.status_code == 404
     assert "couldn&#39;t find that person" in response.text
     assert "set-cookie" not in response.headers
+
+
+def test_signing_out_clears_the_cookie_and_sends_an_hx_redirect_header() -> None:
+    # The old fix relied on hx-on::after-request, which htmx compiles
+    # through new Function() -- blocked by this app's CSP (script-src
+    # 'self', no unsafe-eval). HX-Redirect is a plain response header, no
+    # script execution involved, so it survives that CSP untouched.
+    with _client(FakeGraph({})) as client:
+        client.get("/")  # primes csrf_token
+        response = client.post("/sign-out", headers=_csrf(client))
+    assert response.status_code == 204
+    assert response.headers["hx-redirect"] == "/"
+    cookie = response.headers["set-cookie"]
+    assert SESSION_COOKIE_NAME in cookie and "Max-Age=0" in cookie
 
 
 def test_submitting_the_profile_form_without_a_csrf_token_is_rejected() -> None:

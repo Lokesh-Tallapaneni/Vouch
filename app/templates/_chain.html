@@ -3,11 +3,14 @@
      You ●━━━━━● Priya ●─────● Arjun ▪ Meera
             team        project
 
-   Segment colour names the *kind* of connection and segment thickness names
-   how strong it is -- both derived from the same tie strength, so the coloured
-   track and the label beneath it reinforce each other instead of competing.
-   Origin and terminus are marked differently because a route has a direction
-   and its two ends are not interchangeable.
+   Segment colour names the *kind* of connection (data-context) and segment
+   thickness names how strong it is (data-strength) -- two different
+   attributes, not one derived from the other. Context predicts strength
+   almost perfectly but not perfectly (see vouch.css), so deriving colour
+   from strength would occasionally draw a line whose colour contradicts
+   its own context label underneath it. Origin and terminus are marked
+   differently because a route has a direction and its two ends are not
+   interchangeable.
 
    Expects `route`, an IntroductionRoute (app.models.referral): `.hop_details`
    (list of RouteHop: from_name, to_name, context, strength) and `.confidence`.
@@ -37,6 +40,7 @@
        numbers by accident: 0.60/0.35 put 92% of all edges into one band and
        made the whole encoding say nothing. See vouch.css. #}
     <span class="chain__link"
+          data-context="{{ hop.context }}"
           data-strength="{{ 'strong' if hop.strength >= 0.7 else 'medium' if hop.strength >= 0.45 else 'weak' }}"
           title="{{ hop.from_name }} and {{ hop.to_name }} know each other from {{ hop.context }} — tie strength {{ '%.2f'|format(hop.strength) }}">
       <span class="chain__context">{{ hop.context }}</span>

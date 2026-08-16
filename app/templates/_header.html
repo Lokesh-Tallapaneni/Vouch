@@ -12,16 +12,27 @@
    only when signed out; the profile edit link only when signed in, since it
    is the app's one write surface and always resolves to the caller's own id.
 
-   Sign-out posts to the already-built `/api/v1/auth/logout` (app/api/v1/
-   auth.py) via htmx rather than a full-page <form>: that endpoint returns
-   204 with no body, so a plain form POST would leave the browser showing a
-   blank page. `hx-on::after-request` sends the browser home once the cookie
-   is cleared -- htmx's inline-handler shorthand, no extra JS file needed for
-   one line. The request itself still needs the CSRF header CSRFMiddleware
-   demands of every POST (added after this partial was first written, in the
-   same task that added the profile write) -- see static/js/csrf.js, loaded
-   once in base.html, which attaches it to every htmx request site-wide
-   rather than this button reaching for it one-off. #}
+   Signed-out visitors are told plainly whose network they're browsing: every
+   route on a public read page starts from the seeded demo protagonist
+   (settings.default_person_id), not from an anonymous "you" -- a reviewer
+   who doesn't know that can't make sense of a single chain on the site.
+
+   Sign-out posts to `/sign-out` (app.web.pages, not the JSON API's
+   `/api/v1/auth/logout`) so it can answer with an `HX-Redirect` response
+   header -- htmx honours that natively, no client-side script involved.
+   This used to be `hx-post="/api/v1/auth/logout"` plus
+   `hx-on::after-request="window.location.assign('/')"`: htmx compiles
+   `hx-on` handlers through `new Function()`, which this app's CSP
+   (`script-src 'self'`, no `unsafe-eval`) blocks outright. The POST
+   succeeded and the cookie was cleared server-side, but the eval threw
+   silently -- the redirect never ran, and a signed-out user kept seeing
+   their own email in the header until a manual reload. `HX-Redirect` fixes
+   that without loosening the CSP for one button; grepping the templates
+   for `hx-on` after finding this turned up no other instance. The request
+   still needs the CSRF header CSRFMiddleware demands of every POST --
+   see static/js/csrf.js, loaded once in base.html, which attaches it to
+   every htmx request site-wide rather than this button reaching for it
+   one-off. #}
 <header class="site-header">
   <div class="site-header__bar">
     <a class="site-header__brand" href="/">Vouch</a>
@@ -31,15 +42,13 @@
       {% if current_account %}
         <a href="/profile">Edit profile</a>
         <span class="site-header__account">{{ current_account.email }}</span>
-        <button type="button" class="site-header__signout"
-                hx-post="/api/v1/auth/logout"
-                hx-on::after-request="window.location.assign('/')">
+        <button type="button" class="site-header__signout" hx-post="/sign-out">
           Sign out
         </button>
       {% else %}
         <a href="/sign-in">Sign in</a>
         <a href="/sign-up">Sign up</a>
-        <span class="site-header__account">Signed out</span>
+        <span class="site-header__account">Viewing as Lokesh Tallapaneni — the demo account</span>
       {% endif %}
     </nav>
   </div>

@@ -3,6 +3,18 @@
 {% block title %}{{ profile.name }} — Vouch{% endblock %}
 {% block content %}
   <h1>{{ profile.name }}</h1>
+  {% if is_self and not current_account %}
+    {# Explains whose profile this is before anything else on the page: a
+       reviewer who lands here signed out, following the header's "Viewing
+       as" note, still needs the connection spelled out -- "why am I looking
+       at this specific person's employment history" isn't self-evident from
+       a name alone. Gated on `not current_account` (not just `is_self`) so
+       a real signed-up user viewing their own profile never gets told
+       they're the demo account. #}
+    <p class="lede">This is the demo account every route on this site
+       starts from when you're signed out -- sign in as someone else to see
+       routes starting from their network instead.</p>
+  {% endif %}
   <p>{{ profile.title }}{% if profile.seniority %} · {{ profile.seniority }}{% endif %}</p>
   {% if profile.headline %}<p>{{ profile.headline }}</p>{% endif %}
   {% if profile.team %}<p>Team: {{ profile.team }}</p>{% endif %}

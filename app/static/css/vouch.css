@@ -211,18 +211,36 @@ a:hover { text-decoration-thickness: 2px; }
   width: 100%;
   border-radius: 2px;
 }
-/* Thickness and colour both derive from tie strength. Bands are calibrated
-   against the seeded dataset's measured per-hop distribution — team edges
-   cluster 0.73–0.83, project edges 0.48–0.58, former-colleague edges around
-   0.29 — so the bands sit between the clusters at ≥0.70 / ≥0.45 / below.
-   Do not "round them off" to 0.6/0.35: that put 92% of all edges in one band
-   and made the whole encoding say nothing. */
-.chain__link[data-strength="strong"]::before { height: 7px; background: var(--line-team); }
-.chain__link[data-strength="medium"]::before { height: 4px; background: var(--line-project); }
+/* Colour and thickness are two different quantities, deliberately kept on
+   two different attributes rather than one derived from the other.
+
+   Colour = relationship context (how you know them) — `data-context`, set
+   from the same string as the label underneath, so the track and its
+   caption always agree. Context predicts strength almost perfectly but not
+   perfectly: the protagonist's one deliberately strong ex-colleague tie
+   (strength 0.88, on the demo's own Halcyon Media route) is the
+   counterexample. Deriving colour from strength instead of context made
+   that exact hop draw green ("same team") while its own label said
+   "former-colleague" — a diagram that contradicted itself on the one route
+   most likely to be demoed. Colour is set here, on `--line-color`, so the
+   thickness rules below can read it without knowing which context it came
+   from.
+   Thickness = tie strength, and only strength. Bands are calibrated against
+   the seeded dataset's measured per-hop distribution — team edges cluster
+   0.73–0.83, project edges 0.48–0.58, former-colleague edges around 0.29 —
+   so the bands sit between the clusters at ≥0.70 / ≥0.45 / below. Do not
+   "round them off" to 0.6/0.35: that put 92% of all edges in one band and
+   made the whole encoding say nothing. */
+.chain__link[data-context="team"]::before            { --line-color: var(--line-team); }
+.chain__link[data-context="project"]::before          { --line-color: var(--line-project); }
+.chain__link[data-context="former-colleague"]::before { --line-color: var(--line-former); }
+
+.chain__link[data-strength="strong"]::before { height: 7px; background: var(--line-color); }
+.chain__link[data-strength="medium"]::before { height: 4px; background: var(--line-color); }
 .chain__link[data-strength="weak"]::before {
   height: 2px;
   background: repeating-linear-gradient(90deg,
-    var(--line-former) 0 6px, transparent 6px 10px);
+    var(--line-color) 0 6px, transparent 6px 10px);
 }
 
 /* The context annotation, set like a station note beneath the track. */
@@ -252,14 +270,16 @@ a:hover { text-decoration-thickness: 2px; }
   font-family: var(--font-mono); font-size: 0.72rem; color: var(--muted);
 }
 .legend__item { display: flex; align-items: center; gap: var(--s2); }
-.legend__swatch { display: block; width: 1.6rem; border-radius: 2px; }
-.legend__swatch[data-strength="strong"] { height: 7px; background: var(--line-team); }
-.legend__swatch[data-strength="medium"] { height: 4px; background: var(--line-project); }
-.legend__swatch[data-strength="weak"] {
-  height: 2px;
-  background: repeating-linear-gradient(90deg,
-    var(--line-former) 0 6px, transparent 6px 10px);
-}
+/* Swatches key colour to context only -- uniform height, deliberately not
+   also showing the strength-driven thickness variation, so this legend
+   teaches one axis at a time. The fourth, textual `.legend__item` covers
+   the other axis ("thicker line = stronger tie"); see .chain__link above
+   for why the two are kept on separate attributes instead of one implying
+   the other. */
+.legend__swatch { display: block; width: 1.6rem; height: 4px; border-radius: 2px; }
+.legend__swatch[data-context="team"]             { background: var(--line-team); }
+.legend__swatch[data-context="project"]          { background: var(--line-project); }
+.legend__swatch[data-context="former-colleague"] { background: var(--line-former); }
 
 /* --- Confidence ------------------------------------------------------------
    Set as a signal badge rather than loose text: it's the verdict on a route,
@@ -492,7 +512,7 @@ button:hover, input[type="submit"]:hover { filter: brightness(1.15); }
   .chain__link[data-strength="weak"]::before {
     width: 2px; height: 100%;
     background: repeating-linear-gradient(180deg,
-      var(--line-former) 0 6px, transparent 6px 10px);
+      var(--line-color) 0 6px, transparent 6px 10px);
   }
   .chain__context {
     top: 50%; left: calc(100% + var(--s3)); right: auto;
