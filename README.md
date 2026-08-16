@@ -12,7 +12,13 @@ database instance and the free host spin down when idle, so the first request
 after a quiet period can take 10–20s while they wake. Refresh once if the
 first load is slow.
 
-<!-- Recording link goes here once uploaded. -->
+### A 70-second walkthrough
+
+<video src="https://raw.githubusercontent.com/Lokesh-Tallapaneni/Vouch/main/docs/vouch-demo.mp4"
+       controls muted loop playsinline width="100%"></video>
+
+*(If the player above doesn't load, [download the recording](docs/vouch-demo.mp4)
+— GitHub only renders inline video on the repository page itself.)*
 
 ---
 
