@@ -21,7 +21,6 @@ from pathlib import Path
 from veloce import (
     CSPMiddleware,
     CSRFMiddleware,
-    Jinja2Templates,
     LoggingMiddleware,
     RateLimitMiddleware,
     RequestIDMiddleware,
@@ -39,14 +38,12 @@ APP_TITLE = "Vouch"
 APP_VERSION = "0.1.0"
 APP_DESCRIPTION = "A referral-path finder over a professional network, backed by CognoDB."
 
-#: Module level, not inside create_app(): app.web.pages (the server-rendered
-#: page routes, to follow) imports `templates` directly rather than building
-#: its own environment, so every page renders through the one Jinja
-#: environment this module owns. Safe at import time -- unlike Settings or
-#: the connection pool, building a Jinja environment reads no configuration
-#: and opens no socket.
+#: Only what the static mount below needs. The Jinja environment itself
+#: lives in app.web.templating (not here) specifically to avoid the circular
+#: import that would otherwise exist: app.web.pages will need to import its
+#: router into create_app() below, and app.main importing `templates` back
+#: out of app.web would close that loop.
 BASE_DIR = Path(__file__).resolve().parent
-templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 
 def create_app() -> Veloce:
@@ -60,6 +57,9 @@ def create_app() -> Veloce:
 
     app.include_router(health.router)
     app.include_router(v1.router)
+    # app.web (server-rendered pages, templates in app.web.templating) does
+    # not exist yet -- the UI band is building it. Once it lands, its router
+    # needs `app.include_router(web.router)` here, alongside the two above.
     register_exception_handlers(app)
 
     # `app.mount("/static", StaticFiles(...))` -- what an earlier draft of
