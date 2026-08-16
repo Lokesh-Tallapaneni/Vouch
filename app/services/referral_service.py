@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import Any
 
 from app.core.exceptions import InvalidInputError
@@ -59,7 +60,7 @@ class ReferralService:
                 "limit": self._clamp(limit),
             },
         )
-        return [
+        insiders = (
             CompanyInsider(
                 person_id=row["person_id"],
                 name=row["name"],
@@ -67,12 +68,36 @@ class ReferralService:
                 route=self._to_route(row),
             )
             for row in rows
-        ]
+        )
+        return self._dedupe_by_person_id(insiders)
 
     @staticmethod
     def _check_hops(max_hops: int, *, ceiling: int) -> None:
         if not 1 <= max_hops <= ceiling:
             raise InvalidInputError(f"Hop count must be between 1 and {ceiling}.")
+
+    @staticmethod
+    def _dedupe_by_person_id(insiders: Iterable[CompanyInsider]) -> list[CompanyInsider]:
+        """Keep the first occurrence of each person id.
+
+        Defense in depth, not a workaround left in after the real fix: a
+        CognoDB divergence (``shortestPath()`` returns every equally-short
+        path, not one) previously made an insider reachable by two
+        same-length routes appear twice. Fixed at the query -- aggregated to
+        the single best route per insider, ordered so the strongest survives
+        -- but this pins the service's own contract regardless of what the
+        query underneath does or how the engine behaves. "First occurrence"
+        is safe because Cypher orders by confidence descending, so keeping
+        the first duplicate keeps the best one.
+        """
+        seen: set[str] = set()
+        deduped: list[CompanyInsider] = []
+        for insider in insiders:
+            if insider.person_id in seen:
+                continue
+            seen.add(insider.person_id)
+            deduped.append(insider)
+        return deduped
 
     @staticmethod
     def _clamp(limit: int) -> int:

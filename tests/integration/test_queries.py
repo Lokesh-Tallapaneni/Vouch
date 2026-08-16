@@ -180,6 +180,20 @@ async def test_routes_are_ordered_by_descending_confidence(graph) -> None:
     assert scores == sorted(scores, reverse=True)
 
 
+async def test_company_insiders_have_no_duplicate_people(graph) -> None:
+    # Regression: shortestPath() on this engine returns every equally-short
+    # path, not one, so an insider reachable by two distinct same-length
+    # routes appeared twice -- "Dunlin Systems" at limit=10 returned 10 rows
+    # but only 8 distinct people, spending the limit on duplicates rather
+    # than showing 10 real insiders. FakeGraph can't reproduce a
+    # server-side duplication, so this is the test that would actually have
+    # caught it.
+    insiders = await ReferralService(graph).find_company_insiders("me", "Dunlin Systems", limit=10)
+    assert len(insiders) == 10, "expected the limit to be reached with distinct people"
+    ids = [insider.person_id for insider in insiders]
+    assert len(ids) == len(set(ids)), "duplicate insider in results"
+
+
 async def test_introduction_routes_have_no_duplicate_or_mirrored_chains(graph) -> None:
     # "p0007" (Ritika Sharma) has several distinct routes from "me" at the
     # default hop ceiling -- enough for a dedup regression to actually show

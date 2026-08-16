@@ -95,6 +95,23 @@ async def test_the_insider_hop_bound_is_sent_as_a_parameter_not_interpolated() -
     assert "*1..4" in call.cypher, "the query-specific literal ceiling must stay in the statement"
 
 
+async def test_company_insiders_are_deduplicated_by_person_id() -> None:
+    # Regression: shortestPath() on CognoDB returns every equally-short path,
+    # not one -- an insider reachable by two distinct routes of the same
+    # length appeared twice, spending LIMIT on duplicates. Fixed in the
+    # Cypher itself (aggregated to the best route per insider before the
+    # outer LIMIT), but FakeGraph cannot reproduce a server-side
+    # duplication, so this pins the service-layer contract directly.
+    duplicate_rows = [
+        {**INSIDER_ROW, "confidence": 0.45},
+        {**INSIDER_ROW, "confidence": 0.30},
+    ]
+    graph = FakeGraph({_INSIDERS_FRAGMENT: duplicate_rows})
+    insiders = await ReferralService(graph).find_company_insiders("me", "Everline")
+    assert len(insiders) == 1
+    assert insiders[0].person_id == "p0007"
+
+
 async def test_the_route_limit_is_clamped_to_a_sane_maximum() -> None:
     graph = FakeGraph({"allShortestPaths": [ROUTE_ROW]})
     await ReferralService(graph).find_routes("me", "p0007", limit=10_000)

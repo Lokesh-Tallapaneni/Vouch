@@ -31,6 +31,18 @@ Both rank by confidence, not by length: `reduce` multiplies tie strength
 along the path in a single expression. In SQL, path-dependent aggregation
 like this means either a procedural loop or materialising every candidate
 path and scoring it afterwards.
+
+VERIFIED AGAINST THE LIVE INSTANCE: `shortestPath()` on CognoDB does not
+return one path -- it returns every equally-short path, same as
+`allShortestPaths()`. `COMPANY_INSIDERS_CYPHER` assumed one row per insider;
+in practice an insider reachable by two distinct routes of the same length
+appeared twice, each with a different confidence, spending the `LIMIT` on
+duplicates (reproduced on `Dunlin Systems`: `limit=10` returned 10 rows but
+only 8 distinct people). The fix aggregates per insider *after* computing
+confidence, keeping the highest-confidence path with
+`ORDER BY confidence DESC` followed by `head(collect(...))` -- collapsing to
+one row per insider before the final `LIMIT` is applied, so the limit is
+spent on distinct people again.
 """
 
 from __future__ import annotations
@@ -71,6 +83,13 @@ LIMIT $limit
 #: Literal ceiling is *1..4, not *1..5 -- see the module docstring. This query
 #: runs shortestPath once per insider, so the wasted exploration from a looser
 #: literal bound multiplies by however many people currently work there.
+#:
+#: `shortestPath()` returns every equally-short path on this engine, not one
+#: -- see the module docstring's "VERIFIED AGAINST THE LIVE INSTANCE" note.
+#: The second `WITH` collapses each insider's candidate paths to a single
+#: best row (`ORDER BY confidence DESC` then `head(collect(...))`) *before*
+#: the outer `LIMIT`, so the limit is spent on distinct people, not
+#: duplicate routes to the same person.
 COMPANY_INSIDERS_CYPHER = """
 MATCH (insider:Person)-[:WORKED_AT {current: true}]->(:Company {name: $company})
 WHERE insider.id <> $viewer_id
@@ -80,14 +99,17 @@ MATCH path = shortestPath(
 WHERE length(path) <= $max_hops
 WITH insider, path,
      reduce(score = 1.0, r IN relationships(path) | score * r.strength) AS confidence
-RETURN insider.id    AS person_id,
-       insider.name  AS name,
-       insider.title AS title,
-       [n IN nodes(path) | n.name]             AS chain,
-       [r IN relationships(path) | r.context]  AS contexts,
-       [r IN relationships(path) | r.strength] AS strengths,
-       length(path)                            AS hops,
-       round(confidence * 1000) / 1000.0       AS confidence
+ORDER BY confidence DESC
+WITH insider, head(collect({
+       chain:     [n IN nodes(path) | n.name],
+       contexts:  [r IN relationships(path) | r.context],
+       strengths: [r IN relationships(path) | r.strength],
+       hops:      length(path),
+       conf:      confidence
+     })) AS best
+RETURN insider.id AS person_id, insider.name AS name, insider.title AS title,
+       best.chain AS chain, best.contexts AS contexts, best.strengths AS strengths,
+       best.hops AS hops, round(best.conf * 1000) / 1000.0 AS confidence
 ORDER BY confidence DESC, hops ASC
 LIMIT $limit
 """
