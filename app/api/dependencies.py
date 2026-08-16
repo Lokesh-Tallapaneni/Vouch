@@ -21,6 +21,7 @@ from app.core.settings import Settings
 from app.db.client import GraphClient
 from app.models.account import Account
 from app.services.account_service import AccountService
+from app.services.network_service import NetworkService
 from app.services.person_service import PersonService
 from app.services.referral_service import ReferralService
 from app.services.search_service import SearchService
@@ -131,3 +132,10 @@ def get_referral_service(graph: GraphDep) -> ReferralService:
 
 
 ReferralServiceDep = Annotated[ReferralService, Depends(get_referral_service)]
+
+
+def get_network_service(graph: GraphDep) -> NetworkService:
+    return NetworkService(graph)
+
+
+NetworkServiceDep = Annotated[NetworkService, Depends(get_network_service)]
