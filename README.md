@@ -14,11 +14,23 @@ first load is slow.
 
 ### A 70-second walkthrough
 
-<video src="https://raw.githubusercontent.com/Lokesh-Tallapaneni/Vouch/main/docs/vouch-demo.mp4"
-       controls muted loop playsinline width="100%"></video>
+**[▶ Watch the demo recording](docs/vouch-demo.mp4)** — 70 seconds, captioned,
+recorded against the live deployment. It is committed to this repository
+rather than linked to a third-party host, so it cannot rot.
 
-*(If the player above doesn't load, [download the recording](docs/vouch-demo.mp4)
-— GitHub only renders inline video on the repository page itself.)*
+<!-- To render this as an inline player instead of a link: open a new issue on
+     this repo, drag docs/vouch-demo.mp4 into the comment box, wait for the
+     upload to finish, and copy the resulting
+     https://github.com/user-attachments/assets/<id> URL. Paste that URL alone
+     on its own line here, then close the issue without submitting it.
+
+     That is the only way to get GitHub's inline player. A <video> tag is
+     removed by GitHub's markdown sanitizer (verified: only its fallback link
+     survives), and raw.githubusercontent.com serves .mp4 as
+     application/octet-stream with X-Content-Type-Options: nosniff, so a
+     browser is explicitly forbidden from playing it. The upload endpoint the
+     web UI uses is not part of the public REST API, so this step cannot be
+     scripted. -->
 
 ---
 
