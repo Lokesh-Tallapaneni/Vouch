@@ -28,6 +28,7 @@ from app.api.dependencies import (
     PersonServiceDep,
     ReferralServiceDep,
     RequiredAccount,
+    SearchServiceDep,
     SettingsDep,
     ViewerId,
 )
@@ -161,9 +162,10 @@ def _group_insiders_by_first_hop(insiders: list[CompanyInsider]) -> list[_Inside
     return groups
 
 
-#: Rendered as clickable chips on the landing page so a non-technical evaluator
-#: gets somewhere interesting in one click without having to know a single name.
-SUGGESTED_COMPANIES = ["Everline", "Aeromark", "Dunlin Systems", "Halcyon Media"]
+#: How many suggestion chips the landing page offers. Four fits one row at
+#: every width the design supports; the names themselves come from the graph
+#: (SearchService.suggest_companies), not from a list written down here.
+SUGGESTED_COMPANY_COUNT = 4
 
 #: Must match CSRFMiddleware's own default (app.main, `CSRFMiddleware()` with
 #: no override) -- there is no shared constant to import without touching
@@ -257,16 +259,28 @@ def _csrf_token(request: Request) -> str:
 
 @router.get("/")
 async def show_landing(
-    request: Request, account: CurrentAccount, display_name: CurrentAccountName
+    request: Request,
+    search: SearchServiceDep,
+    viewer_id: ViewerId,
+    account: CurrentAccount,
+    display_name: CurrentAccountName,
 ) -> Response:
-    """Two ways in: find a route to a person, or reach into a company."""
+    """Two ways in: find a route to a person, or reach into a company.
+
+    The company chips are queried per viewer rather than hardcoded. They used
+    to be a literal list of four names, which is a hardcoded answer to a
+    question the graph can answer -- and the wrong answer for anyone whose
+    connections lie elsewhere. `suggest_companies` ranks by how many people
+    the viewer knows within two hops, so the first chip is genuinely their
+    best way in.
+    """
     return templates.TemplateResponse(
         "index.html",
         {
             "request": request,
             "current_account": account,
             "current_account_name": display_name,
-            "suggestions": SUGGESTED_COMPANIES,
+            "suggestions": await search.suggest_companies(viewer_id, limit=SUGGESTED_COMPANY_COUNT),
         },
     )
 

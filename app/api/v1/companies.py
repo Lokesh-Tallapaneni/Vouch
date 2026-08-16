@@ -14,13 +14,24 @@ router = Router(prefix="/companies", tags=["companies"])
 @router.get(
     "",
     response_model=list[str],
-    summary="Search companies by name prefix",
-    response_description="Matching company names, alphabetical.",
+    summary="List companies, or search them by name prefix",
+    response_description=(
+        "Company names. Alphabetical when searching; busiest first when listing."
+    ),
     responses=ERROR_RESPONSES,
 )
 async def list_companies(search: SearchServiceDep, q: str = "", limit: int = 8) -> list[str]:
-    """Typeahead over company names."""
-    return await search.search_companies(q, limit=limit)
+    """Companies in the graph, or those whose name starts with ``q``.
+
+    Without ``q`` this returns the companies with the most current employees
+    rather than an empty list. A collection endpoint that answers a bare
+    ``GET`` with ``[]`` reads as broken -- which is exactly how it looked in
+    the API docs -- and "what companies exist here" is a fair question for a
+    caller who has not typed anything yet.
+    """
+    if q.strip():
+        return await search.search_companies(q, limit=limit)
+    return await search.list_companies(limit=limit)
 
 
 @router.get(

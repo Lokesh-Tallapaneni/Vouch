@@ -103,3 +103,73 @@ async def test_the_companies_limit_is_also_clamped_to_a_sane_maximum() -> None:
 
 def test_the_minimum_search_length_is_two() -> None:
     assert MIN_SEARCH_LENGTH == 2
+
+
+_LIST_FRAGMENT = "count(p) AS headcount"
+_SUGGEST_FRAGMENT = "count(DISTINCT insider) AS near"
+
+
+async def test_listing_companies_does_not_go_through_the_prefix_search() -> None:
+    # A bare GET /companies used to return [] because it called
+    # search_companies with an empty term, which correctly refuses to query.
+    # Listing is a different question from searching and runs its own
+    # statement -- asserting on the cypher, not just the result, is what
+    # stops it being quietly rewired back to the prefix search.
+    graph = FakeGraph({_LIST_FRAGMENT: [{"name": "Everline", "headcount": 54}]})
+    assert await SearchService(graph).list_companies() == ["Everline"]
+    assert _COMPANIES_FRAGMENT not in graph.calls[0].cypher
+
+
+async def test_suggestions_rank_by_the_viewers_own_connections() -> None:
+    # The landing page's chips are per viewer, not a fixed list: whoever the
+    # viewer knows most people near comes first.
+    graph = FakeGraph(
+        {
+            _SUGGEST_FRAGMENT: [
+                {"name": "Halcyon Media", "near": 23},
+                {"name": "Aeromark", "near": 15},
+            ]
+        }
+    )
+    assert await SearchService(graph).suggest_companies("me", limit=2) == [
+        "Halcyon Media",
+        "Aeromark",
+    ]
+
+
+async def test_a_viewer_with_no_connections_still_gets_suggestions() -> None:
+    # A brand-new account knows nobody, so the two-hop query returns nothing.
+    # An empty landing page is worse than one offering somewhere plausible,
+    # so it tops up from the plain company list.
+    graph = FakeGraph(
+        {
+            _SUGGEST_FRAGMENT: [],
+            _LIST_FRAGMENT: [
+                {"name": "Bluecrest Labs", "headcount": 69},
+                {"name": "Greenfield Health", "headcount": 67},
+            ],
+        }
+    )
+    assert await SearchService(graph).suggest_companies("nobody", limit=2) == [
+        "Bluecrest Labs",
+        "Greenfield Health",
+    ]
+
+
+async def test_topping_up_suggestions_cannot_duplicate_a_company() -> None:
+    # The top-up list overlaps the suggestions by construction -- both are
+    # drawn from the same companies -- so a naive concatenation would show
+    # the same chip twice.
+    graph = FakeGraph(
+        {
+            _SUGGEST_FRAGMENT: [{"name": "Halcyon Media", "near": 23}],
+            _LIST_FRAGMENT: [
+                {"name": "Halcyon Media", "headcount": 65},
+                {"name": "Bluecrest Labs", "headcount": 69},
+            ],
+        }
+    )
+    assert await SearchService(graph).suggest_companies("me", limit=2) == [
+        "Halcyon Media",
+        "Bluecrest Labs",
+    ]
