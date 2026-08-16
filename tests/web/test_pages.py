@@ -54,10 +54,13 @@ def test_a_profile_page_renders_the_person_name() -> None:
 def test_signed_out_pages_explain_whose_network_it_is() -> None:
     # A reviewer landing on any page while signed out is browsing as the
     # demo protagonist -- the header has to say so, or every chain on the
-    # site starts from an unexplained stranger.
+    # site starts from an unexplained stranger. "Demo -- ..." rather than
+    # "Viewing as ... the demo account", which used to sit right next to
+    # the Sign in / Sign up links and read as contradicting them.
     with _client(FakeGraph({})) as client:
         response = client.get("/")
     assert "Lokesh Tallapaneni" in response.text
+    assert "Demo" in response.text
 
 
 def test_the_demo_accounts_own_profile_explains_itself() -> None:
@@ -65,6 +68,45 @@ def test_the_demo_accounts_own_profile_explains_itself() -> None:
     with _client(FakeGraph({"OPTIONAL MATCH": [protagonist_row]})) as client:
         response = client.get("/people/me")
     assert "demo account" in response.text
+
+
+def test_signed_in_pages_show_the_persons_name_not_their_email() -> None:
+    account_row = {
+        "id": "acc-1",
+        "email": "priya@example.com",
+        "person_id": "p0001",
+        "created_at": "2026-08-16T10:00:00Z",
+    }
+    graph = FakeGraph(
+        {
+            # FIND_ACCOUNT_BY_EMAIL_CYPHER (login) and FIND_ACCOUNT_BY_ID_CYPHER
+            # (get_current_account, re-resolving the account from the session
+            # cookie on every later request) are two different queries -- the
+            # follow-up GET below needs the second one registered too, or
+            # current_account silently resolves to None and the page renders
+            # as if never signed in.
+            "MATCH (a:Account {email": [
+                {**account_row, "password_hash": hash_account_password(PASSWORD)}
+            ],
+            "MATCH (a:Account {id": [account_row],
+            "OPTIONAL MATCH": [{**PROFILE_ROW, "name": "Priya Sharma"}],
+        }
+    )
+    with _client(graph) as client:
+        client.get("/sign-in")
+        signed_in = client.post(
+            "/sign-in",
+            data={
+                "email": "priya@example.com",
+                "password": PASSWORD,
+                "csrf_token": client.cookies["csrf_token"],
+            },
+            follow_redirects=False,
+        )
+        response = client.get(signed_in.headers["location"])
+    assert "Priya Sharma" in response.text
+    assert "priya@example.com" not in response.text
+    assert "Signed in as Priya Sharma." in response.text
 
 
 def test_search_with_no_matches_renders_a_visible_empty_state() -> None:
@@ -84,6 +126,61 @@ def test_the_profile_edit_page_redirects_when_signed_out() -> None:
     with _client(FakeGraph({})) as client:
         response = client.get("/profile", follow_redirects=False)
     assert response.status_code in (302, 303, 307)
+    assert response.headers["location"] == "/sign-in?reason=profile"
+
+
+def test_the_signin_page_explains_a_redirect_from_profile() -> None:
+    with _client(FakeGraph({})) as client:
+        response = client.get("/sign-in?reason=profile")
+    assert "Sign in to edit your profile." in response.text
+
+
+def test_the_company_page_names_the_shared_intermediary() -> None:
+    # Everline in the real dataset: most routes to its insiders run through
+    # the same person -- the insight is meant to say so instead of leaving
+    # a reader to notice the repetition themselves.
+    rows = [
+        {
+            "person_id": f"p{i:04d}",
+            "name": f"Insider {i}",
+            "title": "Engineer",
+            "chain": ["Lokesh Tallapaneni", "Ananya Kowalski", f"Insider {i}"],
+            "contexts": ["team", "project"],
+            "strengths": [0.78, 0.55],
+            "hops": 2,
+            "confidence": 0.42,
+        }
+        for i in range(3)
+    ]
+    graph = FakeGraph(
+        {"MATCH (insider:Person)-[:WORKED_AT {current: true}]->(:Company {name: $company})": rows}
+    )
+    with _client(graph) as client:
+        response = client.get("/companies/Everline")
+    assert "Ananya Kowalski is your way into Everline." in response.text
+    assert "3 of your 3 routes" in response.text
+
+
+def test_the_company_page_reframes_a_barely_reachable_company() -> None:
+    rows = [
+        {
+            "person_id": "p0999",
+            "name": "Distant Person",
+            "title": "Engineer",
+            "chain": ["Lokesh Tallapaneni", "A", "B", "C", "Distant Person"],
+            "contexts": ["team", "project", "former-colleague", "project"],
+            "strengths": [0.7, 0.5, 0.3, 0.4],
+            "hops": 4,
+            "confidence": 0.2,
+        }
+    ]
+    graph = FakeGraph(
+        {"MATCH (insider:Person)-[:WORKED_AT {current: true}]->(:Company {name: $company})": rows}
+    )
+    with _client(graph) as client:
+        response = client.get("/companies/CadenceRetail?max_hops=4")
+    assert "Your network barely reaches CadenceRetail." in response.text
+    assert "4 introductions long" in response.text
 
 
 def test_the_network_page_renders_a_shell_that_lazy_loads_both_panels() -> None:
@@ -183,7 +280,9 @@ def test_signing_in_with_valid_credentials_redirects_and_sets_a_session_cookie()
             follow_redirects=False,
         )
     assert response.status_code == 303
-    assert response.headers["location"] == "/people/p0001"
+    # ?signed_in=1 is what lets show_person confirm "routes now start from
+    # your network" -- see pages.submit_sign_in.
+    assert response.headers["location"] == "/people/p0001?signed_in=1"
     cookie = response.headers["set-cookie"]
     assert SESSION_COOKIE_NAME in cookie and "HttpOnly" in cookie
 
@@ -235,6 +334,64 @@ def test_signing_up_with_an_unknown_person_id_rerenders_with_an_error() -> None:
     assert response.status_code == 404
     assert "couldn&#39;t find that person" in response.text
     assert "set-cookie" not in response.headers
+
+
+def test_the_signup_form_does_not_ask_for_a_raw_person_id() -> None:
+    # A database primary key like "p0042" is not something a non-technical
+    # person can supply -- this is the defect the UX review flagged as
+    # failing the assignment's own "usable by a non-technical person"
+    # requirement. The claim widget (name search) replaces it.
+    with _client(FakeGraph({})) as client:
+        response = client.get("/sign-up")
+    assert "Find yourself" in response.text
+    assert "Start typing your name" in response.text
+    assert "p0042" not in response.text
+    assert "Your person id" not in response.text
+    assert "At least 10 characters" in response.text
+
+
+def test_the_claim_search_fragment_lets_you_select_a_result() -> None:
+    graph = FakeGraph(
+        {
+            "WHERE toLower(p.name) STARTS WITH": [
+                {"id": "p0264", "name": "Lucas Bhat", "title": "Designer"}
+            ]
+        }
+    )
+    with _client(graph) as client:
+        response = client.get("/fragments/claim-search?q=luc")
+    assert response.status_code == 200
+    assert 'hx-get="/fragments/claim-select?person_id=p0264"' in response.text
+    assert "Lucas Bhat" in response.text
+
+
+def test_selecting_a_claim_result_populates_the_hidden_field() -> None:
+    graph = FakeGraph({"OPTIONAL MATCH": [{**PROFILE_ROW, "id": "p0264", "name": "Lucas Bhat"}]})
+    with _client(graph) as client:
+        response = client.get("/fragments/claim-select?person_id=p0264")
+    assert response.status_code == 200
+    assert 'name="person_id" value="p0264"' in response.text
+    assert "Claiming" in response.text and "Lucas Bhat" in response.text
+
+
+def test_signing_up_keeps_the_selection_and_email_after_a_rejected_password() -> None:
+    # AccountCreate's own password validator rejects "short" before any
+    # query runs, so only the redisplay lookup (get_profile) needs a row.
+    graph = FakeGraph({"OPTIONAL MATCH": [{**PROFILE_ROW, "id": "p0264", "name": "Lucas Bhat"}]})
+    with _client(graph) as client:
+        client.get("/sign-up")
+        response = client.post(
+            "/sign-up",
+            data={
+                "person_id": "p0264",
+                "email": "lucas@example.com",
+                "password": "short",
+                "csrf_token": client.cookies["csrf_token"],
+            },
+        )
+    assert response.status_code == 422
+    assert 'value="lucas@example.com"' in response.text
+    assert "Claiming" in response.text and "Lucas Bhat" in response.text
 
 
 def test_signing_out_clears_the_cookie_and_sends_an_hx_redirect_header() -> None:

@@ -1,0 +1,22 @@
+{# Results for the sign-up claim widget -- buttons that select a person for
+   the form (hx-get into #claim-block), not links that navigate away like
+   every other search result on the site. See fragments.claim_search_fragment
+   for why this can't just reuse _search_results.html. #}
+{% from "_states.html" import empty %}
+{% if results %}
+  <ul class="results" role="listbox">
+    {% for person in results %}
+      <li role="option">
+        <button type="button" class="claim-option"
+                hx-get="/fragments/claim-select?person_id={{ person.id }}"
+                hx-target="#claim-block" hx-swap="outerHTML">
+          {{ person.name }}{% if person.title %} <span class="row-head__meta">{{ person.title }}</span>{% endif %}
+        </button>
+      </li>
+    {% endfor %}
+  </ul>
+{% elif term|length >= 2 %}
+  {{ empty('No matches for “' ~ term ~ '”.') }}
+{% else %}
+  {{ empty("Start typing your name.") }}
+{% endif %}

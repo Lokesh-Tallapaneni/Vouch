@@ -9,6 +9,15 @@
      you have to them — not by how few hops it takes.</p>
 
   {% if insiders %}
+    {% if insight %}
+      {# The finding a ranked list otherwise leaves the reader to spot
+         themselves -- 8 of 10 routes running through the same person, or a
+         best route so long/weak the list reads as broken. Computed from
+         the insiders already fetched, no new query -- see
+         pages._company_insight. #}
+      <p class="insight"><strong>{{ insight.headline }}</strong> {{ insight.detail }}</p>
+    {% endif %}
+
     {# The legend turns three colours into a key. Without it the line styling is
        decoration; with it, someone who has never seen the app can read any
        route diagram on the page without further explanation. #}
@@ -24,6 +33,8 @@
       </span>
       <span class="legend__item">thicker line = stronger tie</span>
     </div>
+    <p class="row-head__meta">A route's strength is every relationship along
+       it multiplied together — one weak link weakens the whole chain.</p>
 
     <ol class="insiders">
       {% for insider in insiders %}

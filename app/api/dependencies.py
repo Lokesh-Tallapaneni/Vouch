@@ -124,6 +124,26 @@ def get_person_service(graph: GraphDep) -> PersonService:
 PersonServiceDep = Annotated[PersonService, Depends(get_person_service)]
 
 
+async def get_current_account_name(account: CurrentAccount, people: PersonServiceDep) -> str | None:
+    """The signed-in account holder's display name, or None when signed out.
+
+    A person's name, not their account's email address, is what the header
+    should show once signed in -- an email is a login credential, not
+    something a user wants to see about themselves in navigation. Account
+    and Person are deliberately separate models (see app.models.account's
+    own module docstring: most people in the graph never have an account),
+    so the name has to come from a second lookup rather than living on
+    Account itself.
+    """
+    if account is None:
+        return None
+    profile = await people.get_profile(account.person_id, viewer_id=None)
+    return profile.name
+
+
+CurrentAccountName = Annotated[str | None, Depends(get_current_account_name)]
+
+
 def get_search_service(graph: GraphDep) -> SearchService:
     return SearchService(graph)
 

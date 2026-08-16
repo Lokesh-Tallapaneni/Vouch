@@ -1,11 +1,15 @@
 {# Site chrome, included by every page via base.html.
 
-   Reads one optional context variable so this partial degrades cleanly on
+   Reads two optional context variables so this partial degrades cleanly on
    any page that hasn't wired the account layer into its view yet:
      - `current_account`: an `Account | None` (app.models.account), e.g. from
        `app.api.dependencies.CurrentAccount`. Jinja treats an undefined name
        as falsy, so a page that never passes it just renders signed-out --
        nothing breaks.
+     - `current_account_name`: the signed-in person's display name (from
+       `app.api.dependencies.CurrentAccountName`), shown instead of the
+       account's email -- an email is a login credential, not something a
+       signed-in user wants to see about themselves in navigation.
 
    Page-specific navigation links (Task 19): Network is always visible --
    it needs no account, same as every other read page. Sign-in/sign-up show
@@ -15,7 +19,12 @@
    Signed-out visitors are told plainly whose network they're browsing: every
    route on a public read page starts from the seeded demo protagonist
    (settings.default_person_id), not from an anonymous "you" -- a reviewer
-   who doesn't know that can't make sense of a single chain on the site.
+   who doesn't know that can't make sense of a single chain on the site. The
+   wording leads with "Demo" rather than "Viewing as ... the demo account"
+   specifically because the latter sat directly next to the Sign in / Sign
+   up links and read as contradicting them -- "you're signed in as someone,
+   AND here's a sign-in link" looked like two features disagreeing about
+   the app's state rather than one demo mode plus an offer to leave it.
 
    Sign-out posts to `/sign-out` (app.web.pages, not the JSON API's
    `/api/v1/auth/logout`) so it can answer with an `HX-Redirect` response
@@ -41,14 +50,14 @@
       <a href="/network">Network</a>
       {% if current_account %}
         <a href="/profile">Edit profile</a>
-        <span class="site-header__account">{{ current_account.email }}</span>
+        <span class="site-header__account">{{ current_account_name or current_account.email }}</span>
         <button type="button" class="site-header__signout" hx-post="/sign-out">
           Sign out
         </button>
       {% else %}
         <a href="/sign-in">Sign in</a>
         <a href="/sign-up">Sign up</a>
-        <span class="site-header__account">Viewing as Lokesh Tallapaneni — the demo account</span>
+        <span class="site-header__account">Demo — you're exploring Lokesh Tallapaneni's network.</span>
       {% endif %}
     </nav>
   </div>

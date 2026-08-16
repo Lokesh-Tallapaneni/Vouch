@@ -13,7 +13,14 @@ from __future__ import annotations
 
 from veloce import Request, Response, Router
 
-from app.api.dependencies import NetworkServiceDep, ReferralServiceDep, SearchServiceDep, ViewerId
+from app.api.dependencies import (
+    NetworkServiceDep,
+    PersonServiceDep,
+    ReferralServiceDep,
+    SearchServiceDep,
+    ViewerId,
+)
+from app.core.exceptions import ResourceNotFoundError
 from app.web.templating import templates
 
 router = Router(prefix="/fragments", tags=["fragments"])
@@ -35,6 +42,45 @@ async def search_fragment(
         ]
     return templates.TemplateResponse(
         "_search_results.html", {"request": request, "results": results, "term": q}
+    )
+
+
+@router.get("/claim-search")
+async def claim_search_fragment(
+    request: Request, search: SearchServiceDep, q: str = ""
+) -> Response:
+    """Name search for the sign-up "claim your profile" widget.
+
+    A dedicated fragment rather than reusing /fragments/search: clicking a
+    result here selects a person for the sign-up form (see
+    claim_select_fragment), it does not navigate to their profile like every
+    other search result on the site does -- the two need different markup
+    (a button posting a selection vs. a link), so sharing one endpoint would
+    mean branching its response on which caller asked.
+    """
+    people = await search.search_people(q)
+    return templates.TemplateResponse(
+        "_claim_search_results.html", {"request": request, "results": people, "term": q}
+    )
+
+
+@router.get("/claim-select")
+async def claim_select_fragment(
+    request: Request, people: PersonServiceDep, person_id: str
+) -> Response:
+    """Swap the claim widget to a confirmed selection.
+
+    Returns the whole `#claim-block` (outerHTML swap), carrying the hidden
+    `person_id` the sign-up form ultimately submits -- see _claim_block.html,
+    the same partial sign_up.html's own full-page render uses, so the two
+    never drift into disagreeing about what a "selected" state looks like.
+    """
+    try:
+        selected = await people.get_profile(person_id, viewer_id=None)
+    except ResourceNotFoundError:
+        selected = None
+    return templates.TemplateResponse(
+        "_claim_block.html", {"request": request, "selected": selected}
     )
 
 

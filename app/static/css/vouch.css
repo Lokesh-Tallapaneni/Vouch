@@ -62,10 +62,15 @@
   /* Route confidence is a different quantity from per-hop tie strength — it's
      the product along a whole chain, so it lives on its own scale. Calibrated
      against the measured spread across the eight seeded companies
-     (0.20–0.88): strong ≥0.60, medium ≥0.40, weak below. */
+     (0.20–0.88): strong ≥0.60, medium ≥0.40, weak below.
+     Medium and weak were originally 24° apart in hue (36°/12°) at similar
+     lightness -- close enough to read as "the same brownish colour" at
+     badge size. Widened to ~40° apart (gold vs. true red) at the same
+     darkness, so they stay distinct without weakening contrast against
+     --surface. */
   --conf-strong: #0B6E4F;
-  --conf-medium: #8A5A12;
-  --conf-weak:   #93331A;
+  --conf-medium: #8F6300;
+  --conf-weak:   #9C2B1F;
 
   --font-display: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
@@ -97,8 +102,8 @@
     --line-former:  #7FA0E0;
 
     --conf-strong: #35B98A;
-    --conf-medium: #D2A24A;
-    --conf-weak:   #E08A72;
+    --conf-medium: #E0B23D;
+    --conf-weak:   #EF6B52;
   }
 }
 
@@ -466,6 +471,18 @@ button:hover, input[type="submit"]:hover { filter: brightness(1.15); }
 .results a:hover { background: var(--paper); }
 .results .confidence, .results span { color: var(--muted); }
 
+/* The sign-up claim widget's results are buttons, not links -- selecting
+   one posts a selection rather than navigating away (see
+   _claim_search_results.html) -- so they need their own reset on top of
+   the shared .results row layout `a` already gets. */
+.claim-option {
+  display: flex; justify-content: space-between; align-items: baseline;
+  gap: var(--s3); padding: var(--s3) var(--s4); width: 100%;
+  font: inherit; text-align: left; color: var(--ink);
+  background: none; border: none; cursor: pointer;
+}
+.claim-option:hover { background: var(--paper); }
+
 /* Suggested companies — a non-technical evaluator's fastest route to
    somewhere interesting, so they read as destinations, not as links. */
 .chips { display: flex; flex-wrap: wrap; gap: var(--s2); margin-bottom: var(--s3); }
@@ -521,7 +538,19 @@ button:hover, input[type="submit"]:hover { filter: brightness(1.15); }
   }
 
   .site-header__bar { align-items: flex-start; }
-  .site-header__nav { margin-left: 0; width: 100%; }
+  /* `.site-header__nav` had no wrap of its own -- `.site-header__bar`'s
+     flex-wrap only ever applies to *its* direct children (brand, tagline,
+     nav), not to nav's own children one level down. At narrow widths the
+     signed-in nav (Network, Edit profile, the account email, a pill-shaped
+     Sign out button) had nowhere to go but shrink, and browsers shrink
+     inline text by wrapping *inside* each item before giving up -- "Edit
+     profile" broke into "Edit" / "profile" on two lines inside one link,
+     the same for "Sign out", and the pill button's own min-content floor
+     (border + padding it can't shrink below) still pushed past the header
+     edge. Letting the items wrap onto their own rows instead is what
+     actually fixes both: no more mid-word breaks, and nothing left with a
+     floor to overflow past. */
+  .site-header__nav { margin-left: 0; width: 100%; flex-wrap: wrap; }
   .site-main { padding: var(--s5) var(--s4) var(--s7); }
   .insiders > li, .routes > li { padding: var(--s4); }
   input[type="text"], input[type="email"], input[type="password"], input[type="search"] {
@@ -592,3 +621,41 @@ button:hover, input[type="submit"]:hover { filter: brightness(1.15); }
    centring -- the paragraph ends up a narrow left-ish column inside a centred
    block. It's one line of chrome; let it use the width it has. */
 .site-footer p { max-width: none; margin: 0; }
+
+/* --- Person profile ----------------------------------------------------
+   Employment, projects and mutual connections were plain browser-default
+   <ul>/<li> lists -- the one screen on the site that hadn't been drawn,
+   next to route diagrams and card grids everywhere else. */
+.profile-list { list-style: none; margin: 0; padding: 0; }
+.profile-list > li {
+  padding: var(--s3) 0;
+  border-bottom: 1px solid var(--rule);
+}
+.profile-list > li:last-child { border-bottom: none; }
+.profile-list a { color: var(--ink); text-decoration: none; font-weight: 600; }
+.profile-list a:hover { color: var(--accent); text-decoration: underline; }
+
+/* Skills as tags, not a bullet column -- a set of short, same-shape items
+   reads faster as a wrapped row than as one-per-line. Deliberately not
+   .chip: chips are clickable destinations (suggested companies); a skill
+   is a fact about this person, not a link anywhere. */
+.tags { display: flex; flex-wrap: wrap; gap: var(--s2); list-style: none; margin: 0; padding: 0; }
+.tag {
+  font-size: 0.85rem; color: var(--muted); background: var(--surface);
+  border: 1px solid var(--rule); border-radius: 999px;
+  padding: 0.2rem var(--s3);
+}
+
+/* A one-off confirmation banner, e.g. "Signed in as X. Routes now start
+   from your network." -- reuses .insight's left-accent treatment (see the
+   company page) rather than inventing a second "here's something
+   important" style for what is the same kind of statement. */
+.insight {
+  font-size: 1.05rem;
+  padding: var(--s4) var(--s5);
+  background: var(--surface);
+  border-left: 3px solid var(--accent);
+  border-radius: 4px;
+  margin-bottom: var(--s5);
+}
+.insight strong { color: var(--ink); }

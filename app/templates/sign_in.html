@@ -6,6 +6,10 @@
 {% block title %}Sign in — Vouch{% endblock %}
 {% block content %}
   <h1>Sign in</h1>
+  {# A redirect that lands here (e.g. /profile while signed out) always
+     carries ?reason=... -- see pages._SIGN_IN_REASONS -- so the bounce is
+     explained rather than silent. #}
+  {% if notice %}<p class="row-head__meta">{{ notice }}</p>{% endif %}
   {% if error %}{{ error_state(error) }}{% endif %}
   <form method="post" action="/sign-in">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">

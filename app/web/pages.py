@@ -15,6 +15,7 @@ HTML path redirects. Same rule, two audiences.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Annotated, TypedDict
 
 from pydantic import ValidationError
@@ -23,6 +24,7 @@ from veloce import Form, RedirectResponse, Request, Response, Router
 from app.api.dependencies import (
     AccountServiceDep,
     CurrentAccount,
+    CurrentAccountName,
     PersonServiceDep,
     ReferralServiceDep,
     RequiredAccount,
@@ -32,11 +34,75 @@ from app.api.dependencies import (
 from app.core.exceptions import ResourceNotFoundError
 from app.core.security import SESSION_COOKIE_NAME, issue_session_token
 from app.models.account import Account, AccountCreate, Credentials, SessionClaims
-from app.models.person import ProfileUpdate
+from app.models.person import PersonProfile, ProfileUpdate
+from app.models.referral import CompanyInsider
 from app.services.account_service import EmailAlreadyRegisteredError
+from app.services.person_service import PersonService
 from app.web.templating import templates
 
 router = Router(tags=["web"])
+
+
+@dataclass(frozen=True, slots=True)
+class _CompanyInsight:
+    """The one sentence a company page leads with -- see _company_insight."""
+
+    headline: str
+    detail: str
+
+
+def _company_insight(
+    company: str, insiders: list[CompanyInsider], max_hops: int
+) -> _CompanyInsight | None:
+    """Compute the finding a ranked list of routes leaves implicit.
+
+    No new query -- both shapes below read only the insiders the page
+    already fetched. Two shapes, in priority order:
+
+    1. The network barely reaches this company at all (the *best* route
+       already sits at the hop ceiling, or its own confidence is in the
+       weak band). Saying that plainly beats a list of near-identical weak
+       numbers that just reads as broken -- Cadence Retail's ten routes
+       cluster at 0.20-0.37 through a single four-hop path, and without this
+       sentence that page looks like a bug report, not an answer.
+    2. Otherwise, the person who shows up on the most routes. When most of
+       a company's routes run through the same intermediary, that fact
+       *is* the answer, and it was sitting unstated in a list of near-
+       duplicate rows -- Everline: 8 of 10 routes go through Lucas Bhat.
+
+    Counts routes an intermediary appears *on*, not raw name occurrences --
+    two hops through the same person on one route must not double-count.
+    """
+    if not insiders:
+        return None
+
+    # COMPANY_INSIDERS_CYPHER already orders by confidence DESC, so the
+    # first row is the best route this company has to offer.
+    best = insiders[0]
+    if best.route.hops >= max_hops or best.route.confidence < 0.4:
+        hops = best.route.hops
+        return _CompanyInsight(
+            headline=f"Your network barely reaches {company}.",
+            detail=(
+                f"The best route is {hops} introduction{'' if hops == 1 else 's'} "
+                "long, which rarely gets a reply."
+            ),
+        )
+
+    counts: dict[str, int] = {}
+    for insider in insiders:
+        for name in set(insider.route.chain[1:-1]):
+            counts[name] = counts.get(name, 0) + 1
+    if not counts:
+        return None
+    name, count = max(counts.items(), key=lambda item: item[1])
+    if count < 2:
+        return None
+    return _CompanyInsight(
+        headline=f"{name} is your way into {company}.",
+        detail=f"{count} of your {len(insiders)} routes go through them — start there.",
+    )
+
 
 #: Rendered as clickable chips on the landing page so a non-technical evaluator
 #: gets somewhere interesting in one click without having to know a single name.
@@ -123,11 +189,18 @@ def _csrf_token(request: Request) -> str:
 
 
 @router.get("/")
-async def show_landing(request: Request, account: CurrentAccount) -> Response:
+async def show_landing(
+    request: Request, account: CurrentAccount, display_name: CurrentAccountName
+) -> Response:
     """Two ways in: find a route to a person, or reach into a company."""
     return templates.TemplateResponse(
         "index.html",
-        {"request": request, "current_account": account, "suggestions": SUGGESTED_COMPANIES},
+        {
+            "request": request,
+            "current_account": account,
+            "current_account_name": display_name,
+            "suggestions": SUGGESTED_COMPANIES,
+        },
     )
 
 
@@ -139,6 +212,7 @@ async def show_person(
     referrals: ReferralServiceDep,
     viewer_id: ViewerId,
     account: CurrentAccount,
+    display_name: CurrentAccountName,
 ) -> Response:
     """One person: who they are, where they've worked, and your route to them.
 
@@ -152,16 +226,27 @@ async def show_person(
     routes = (
         [] if is_self else await referrals.find_routes(viewer_id, person_id, max_hops=5, limit=5)
     )
+    # submit_sign_in/submit_sign_up redirect here with ?signed_in=1 on
+    # success -- signing in genuinely changes every answer on this site
+    # (the viewer the whole graph is walked from), and nothing said so
+    # without this. A query flag rather than session state: stateless,
+    # survives a refresh as "still just signed in" for exactly one load,
+    # and needs no new storage.
+    just_signed_in = (
+        is_self and account is not None and request.query_params.get("signed_in") == "1"
+    )
     return templates.TemplateResponse(
         "person.html",
         {
             "request": request,
             "current_account": account,
+            "current_account_name": display_name,
             "profile": profile,
             "routes": routes,
             "max_hops": 5,
             "viewer_id": viewer_id,
             "is_self": is_self,
+            "just_signed_in": just_signed_in,
         },
     )
 
@@ -173,6 +258,7 @@ async def show_company(
     referrals: ReferralServiceDep,
     viewer_id: ViewerId,
     account: CurrentAccount,
+    display_name: CurrentAccountName,
     max_hops: int = 4,
 ) -> Response:
     """The centrepiece: insiders at this company, ranked by route confidence."""
@@ -184,15 +270,19 @@ async def show_company(
         {
             "request": request,
             "current_account": account,
+            "current_account_name": display_name,
             "company": company_name,
             "insiders": insiders,
             "max_hops": max_hops,
+            "insight": _company_insight(company_name, insiders, max_hops),
         },
     )
 
 
 @router.get("/network")
-async def show_network(request: Request, account: CurrentAccount) -> Response:
+async def show_network(
+    request: Request, account: CurrentAccount, display_name: CurrentAccountName
+) -> Response:
     """Network health shell: brokers and bus-factor risks load lazily via
     htmx (see fragments.py's brokers_fragment/bus_factor_risks_fragment).
 
@@ -202,8 +292,19 @@ async def show_network(request: Request, account: CurrentAccount) -> Response:
     each panel hx-get itself is what keeps this page from reading as hung.
     """
     return templates.TemplateResponse(
-        "network.html", {"request": request, "current_account": account}
+        "network.html",
+        {"request": request, "current_account": account, "current_account_name": display_name},
     )
+
+
+#: Shown on /sign-in when a redirect got you there instead of a link --
+#: keyed by the `reason` query param each redirect sets, so a silent bounce
+#: (visit /profile signed out, land on /sign-in with no explanation) always
+#: says why. New callers just need a new key here and `?reason=<key>` on
+#: their own redirect.
+_SIGN_IN_REASONS: dict[str, str] = {
+    "profile": "Sign in to edit your profile.",
+}
 
 
 @router.get("/sign-in")
@@ -213,7 +314,9 @@ async def show_sign_in(request: Request) -> Response:
         {
             "request": request,
             "current_account": None,
+            "current_account_name": None,
             "error": None,
+            "notice": _SIGN_IN_REASONS.get(request.query_params.get("reason", "")),
             "csrf_token": _csrf_token(request),
         },
     )
@@ -241,7 +344,9 @@ async def submit_sign_in(
             {
                 "request": request,
                 "current_account": None,
+                "current_account_name": None,
                 "error": "Enter a valid email and password.",
+                "notice": None,
                 "csrf_token": _csrf_token(request),
             },
             status_code=422,
@@ -254,15 +359,33 @@ async def submit_sign_in(
             {
                 "request": request,
                 "current_account": None,
+                "current_account_name": None,
                 "error": "Those credentials didn't match.",
+                "notice": None,
                 "csrf_token": _csrf_token(request),
             },
             status_code=401,
         )
 
-    response = RedirectResponse(f"/people/{account.person_id}", status_code=303)
+    # ?signed_in=1 -- see show_person's just_signed_in: signing in changes
+    # every route on the site (the viewer the whole graph walks from), and
+    # this is what confirms that instead of leaving it implicit.
+    response = RedirectResponse(f"/people/{account.person_id}?signed_in=1", status_code=303)
     _attach_session(response, account, settings.jwt_secret.get_secret_value())
     return response
+
+
+async def _redisplay_selection(people: PersonService, person_id: str) -> PersonProfile | None:
+    """Re-fetch a claimed person for error redisplay, so a rejected sign-up
+    (weak password, taken email) doesn't discard a selection the user
+    already made via the name search below -- see submit_sign_up.
+    """
+    if not person_id:
+        return None
+    try:
+        return await people.get_profile(person_id, viewer_id=None)
+    except ResourceNotFoundError:
+        return None
 
 
 @router.get("/sign-up")
@@ -272,7 +395,10 @@ async def show_sign_up(request: Request) -> Response:
         {
             "request": request,
             "current_account": None,
+            "current_account_name": None,
             "error": None,
+            "email": "",
+            "selected": None,
             "csrf_token": _csrf_token(request),
         },
     )
@@ -282,6 +408,7 @@ async def show_sign_up(request: Request) -> Response:
 async def submit_sign_up(
     request: Request,
     accounts: AccountServiceDep,
+    people: PersonServiceDep,
     settings: SettingsDep,
     person_id: OptionalFormField,
     email: OptionalFormField,
@@ -291,7 +418,11 @@ async def submit_sign_up(
 
     Sign-up does not create a new Person -- see AccountService.register: the
     graph is the dataset, and a person with no seeded connections would have
-    no routes and nothing to show.
+    no routes and nothing to show. `person_id` arrives from the name-search
+    claim widget (_claim_block.html / fragments.claim_select_fragment), not
+    typed by hand -- a database primary key is not something a non-technical
+    person can supply, and the assignment brief requires exactly that kind
+    of person to be able to use this app.
     """
     try:
         data = AccountCreate(email=email, password=password, person_id=person_id)
@@ -301,7 +432,10 @@ async def submit_sign_up(
             {
                 "request": request,
                 "current_account": None,
+                "current_account_name": None,
                 "error": exc.errors()[0]["msg"],
+                "email": email,
+                "selected": await _redisplay_selection(people, person_id),
                 "csrf_token": _csrf_token(request),
             },
             status_code=422,
@@ -315,13 +449,16 @@ async def submit_sign_up(
             {
                 "request": request,
                 "current_account": None,
+                "current_account_name": None,
                 "error": exc.user_message,
+                "email": email,
+                "selected": await _redisplay_selection(people, person_id),
                 "csrf_token": _csrf_token(request),
             },
             status_code=exc.status_code,
         )
 
-    response = RedirectResponse(f"/people/{account.person_id}", status_code=303)
+    response = RedirectResponse(f"/people/{account.person_id}?signed_in=1", status_code=303)
     _attach_session(response, account, settings.jwt_secret.get_secret_value())
     return response
 
@@ -353,16 +490,22 @@ async def show_profile_edit(
 ) -> Response:
     """The edit form for your own profile.
 
-    Redirects rather than 401s: see the module docstring.
+    Redirects rather than 401s: see the module docstring. `?reason=profile`
+    is what lets /sign-in explain *why* the redirect happened instead of
+    bouncing a signed-out visitor there silently -- see _SIGN_IN_REASONS.
     """
     if account is None:
-        return RedirectResponse("/sign-in", status_code=303)
+        return RedirectResponse("/sign-in?reason=profile", status_code=303)
     profile = await people.get_profile(account.person_id, viewer_id=account.person_id)
     return templates.TemplateResponse(
         "profile_edit.html",
         {
             "request": request,
             "current_account": account,
+            # profile.name is the signed-in account holder's own name here
+            # (person_id == account.person_id), so this reuses the fetch
+            # above rather than calling CurrentAccountName for a second one.
+            "current_account_name": profile.name,
             "profile": profile,
             "errors": {},
             "csrf_token": _csrf_token(request),
@@ -406,6 +549,7 @@ async def submit_profile_edit(
             {
                 "request": request,
                 "current_account": account,
+                "current_account_name": profile.name,
                 "profile": profile,
                 "errors": {str(e["loc"][0]): e["msg"] for e in exc.errors()},
                 "csrf_token": _csrf_token(request),

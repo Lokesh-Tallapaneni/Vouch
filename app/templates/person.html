@@ -3,19 +3,29 @@
 {% block title %}{{ profile.name }} — Vouch{% endblock %}
 {% block content %}
   <h1>{{ profile.name }}</h1>
-  {% if is_self and not current_account %}
+
+  {% if just_signed_in %}
+    {# Signing in genuinely changes every route on the site -- the viewer
+       the whole graph is walked from -- and that fact was invisible
+       without this. See show_person's just_signed_in for the ?signed_in=1
+       mechanism (a query flag, not session state: stateless, and correct
+       for exactly the one page load it's meant for). #}
+    <p class="insight"><strong>Signed in as {{ profile.name }}.</strong>
+       Routes now start from your network.</p>
+  {% elif is_self and not current_account %}
     {# Explains whose profile this is before anything else on the page: a
-       reviewer who lands here signed out, following the header's "Viewing
-       as" note, still needs the connection spelled out -- "why am I looking
-       at this specific person's employment history" isn't self-evident from
-       a name alone. Gated on `not current_account` (not just `is_self`) so
-       a real signed-up user viewing their own profile never gets told
-       they're the demo account. #}
+       reviewer who lands here signed out, following the header's "Demo"
+       note, still needs the connection spelled out -- "why am I looking
+       at this specific person's employment history" isn't self-evident
+       from a name alone. Gated on `not current_account` (not just
+       `is_self`) so a real signed-up user viewing their own profile never
+       gets told they're the demo account. #}
     <p class="lede">This is the demo account every route on this site
        starts from when you're signed out -- sign in as someone else to see
        routes starting from their network instead.</p>
   {% endif %}
-  <p>{{ profile.title }}{% if profile.seniority %} · {{ profile.seniority }}{% endif %}</p>
+
+  <p>{{ profile.title }}{% if profile.seniority %} · {{ profile.seniority.replace('-', ' ').replace('_', ' ')|capitalize }}{% endif %}</p>
   {% if profile.headline %}<p>{{ profile.headline }}</p>{% endif %}
   {% if profile.team %}<p>Team: {{ profile.team }}</p>{% endif %}
 
@@ -29,9 +39,16 @@
   <section aria-labelledby="employment-heading">
     <h2 id="employment-heading">Employment</h2>
     {% if profile.employment %}
-      <ul>
+      <ul class="profile-list">
         {% for job in profile.employment %}
-          <li>{{ job.company }} ({{ job.from_year }}–{{ job.to_year or "present" }}){% if job.is_current %} · current{% endif %}</li>
+          {# Links to the company's own reach page -- the natural next
+             question after "where has this person worked" is "who else
+             can I reach there", and the old plain-text row was a dead end
+             that never answered it. #}
+          <li>
+            <a href="/companies/{{ job.company }}">{{ job.company }}</a>
+            <span class="row-head__meta">{{ job.from_year }}–{{ job.to_year or "present" }}{% if job.is_current %} · current{% endif %}</span>
+          </li>
         {% endfor %}
       </ul>
     {% else %}
@@ -42,7 +59,7 @@
   <section aria-labelledby="skills-heading">
     <h2 id="skills-heading">Skills</h2>
     {% if profile.skills %}
-      <ul>{% for skill in profile.skills %}<li>{{ skill }}</li>{% endfor %}</ul>
+      <ul class="tags">{% for skill in profile.skills %}<li class="tag">{{ skill }}</li>{% endfor %}</ul>
     {% else %}
       {{ empty("No skills on record.") }}
     {% endif %}
@@ -51,7 +68,7 @@
   <section aria-labelledby="projects-heading">
     <h2 id="projects-heading">Projects</h2>
     {% if profile.projects %}
-      <ul>{% for project in profile.projects %}<li>{{ project }}</li>{% endfor %}</ul>
+      <ul class="profile-list">{% for project in profile.projects %}<li>{{ project }}</li>{% endfor %}</ul>
     {% else %}
       {{ empty("No projects on record.") }}
     {% endif %}
@@ -61,7 +78,7 @@
     <section aria-labelledby="mutuals-heading">
       <h2 id="mutuals-heading">People you both know</h2>
       {% if profile.mutual_connections %}
-        <ul>{% for name in profile.mutual_connections %}<li>{{ name }}</li>{% endfor %}</ul>
+        <ul class="profile-list">{% for name in profile.mutual_connections %}<li>{{ name }}</li>{% endfor %}</ul>
       {% else %}
         {{ empty("No mutual connections.") }}
       {% endif %}
