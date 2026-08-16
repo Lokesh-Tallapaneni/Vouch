@@ -832,7 +832,7 @@ wheels = [
 
 [[package]]
 name = "veloceframework"
-version = "0.12.0"
+version = "0.12.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httptools" },
@@ -843,9 +843,9 @@ dependencies = [
     { name = "python-multipart" },
     { name = "uvloop", marker = "sys_platform != 'win32'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/73/d5/8592343a409465bec93a3cbbac6d4b2cc4282c571abb08090dd725a26a4f/veloceframework-0.12.0.tar.gz", hash = "sha256:185cc345cf22e03ec4efdf9e071acc1821ad8e3ae656ca6c88f9a120eae405ce", size = 1063209, upload-time = "2026-08-16T11:06:52.221Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b6/d3/7f549a66adefb3262276a71db22e95cc2ccd617ebf7ada4fc1e810a4f360/veloceframework-0.12.1.tar.gz", hash = "sha256:5f074731561f4acb15ead2a65e1a8796cfb77bc2d76bd06accdbd5560579ce4d", size = 1065106, upload-time = "2026-08-16T12:13:50.159Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d6/f5/0671f2fba426129f2e777d500852d01c932bf930953f36966625e66f5453/veloceframework-0.12.0-py3-none-any.whl", hash = "sha256:4ae0be714a3fb381fab2cff467b671db7a8ed153a734d31c338d4523f73053e8", size = 649180, upload-time = "2026-08-16T11:06:50.737Z" },
+    { url = "https://files.pythonhosted.org/packages/6a/c5/2d369de417cfe009421b5a4049bfaaea80e0772e3666475fec1efe8f2939/veloceframework-0.12.1-py3-none-any.whl", hash = "sha256:2e6de2d42f496bd6902b0de25854b5fcadfcaaf96089dafbd497810012cc607b", size = 649999, upload-time = "2026-08-16T12:13:48.347Z" },
 ]
 
 [[package]]
@@ -877,7 +877,7 @@ requires-dist = [
     { name = "pydantic-settings", specifier = ">=2.6" },
     { name = "python-dotenv", specifier = ">=1.0" },
     { name = "uvicorn", specifier = ">=0.30" },
-    { name = "veloceframework", specifier = "==0.12.0" },
+    { name = "veloceframework", specifier = "==0.12.1" },
 ]
 
 [package.metadata.requires-dev]

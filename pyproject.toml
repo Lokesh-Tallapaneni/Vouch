@@ -9,7 +9,7 @@ license = { text = "MIT" }
 dependencies = [
     # Own ASGI framework. NOTE: the PyPI name is `veloceframework`; the name
     # `veloce` belongs to an unrelated Ray/PyTorch library.
-    "veloceframework==0.12.0",
+    "veloceframework==0.12.1",
     # Official Neo4j driver — CognoDB speaks openCypher over Bolt 5.x.
     "neo4j>=5.28,<6",
     "pydantic>=2.9",
