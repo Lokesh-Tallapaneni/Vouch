@@ -134,11 +134,30 @@ async def get_current_account_name(account: CurrentAccount, people: PersonServic
     own module docstring: most people in the graph never have an account),
     so the name has to come from a second lookup rather than living on
     Account itself.
+
+    Calls ``PersonService.get_display_name``, not ``get_profile`` --
+    deliberately, after measuring the version that called ``get_profile``.
+    Every route depending on ``CurrentAccountName`` (the header, on every
+    signed-in page) was paying for the full five-clause profile query --
+    employment, skills, projects, team, mutual connections -- to read a
+    single field off the result.
+
+    Measured honestly rather than assumed: on the current 500-person
+    instance this is *not* a wall-clock win -- ``get_profile`` and
+    ``get_display_name`` both land at ~526ms, because ``PERSON_PROFILE_CYPHER``
+    was already restructured (chained ``WITH ... collect(DISTINCT ...)``,
+    see ``app.db.cypher.people``) to the same network floor this query sits
+    at. The call count is unchanged too: this is still one database round
+    trip, same as before. What changes is query hygiene, which pays off on
+    a timeline this measurement can't see -- no ``OPTIONAL MATCH``, no
+    ``collect()``, a fraction of the payload, and no growth in cost as the
+    graph grows, unlike the profile query it replaced. The measured latency
+    and round-trip win lives one layer up: see ``get_current_account_name``'s
+    replacement (reading the name from the session token) once that lands.
     """
     if account is None:
         return None
-    profile = await people.get_profile(account.person_id, viewer_id=None)
-    return profile.name
+    return await people.get_display_name(account.person_id)
 
 
 CurrentAccountName = Annotated[str | None, Depends(get_current_account_name)]

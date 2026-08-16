@@ -8,6 +8,7 @@ from app.core.exceptions import InvalidInputError, ResourceNotFoundError
 from app.core.logging import get_logger
 from app.db.client import GraphClient
 from app.db.cypher.people import (
+    PERSON_NAME_CYPHER,
     PERSON_PROFILE_CYPHER,
     PERSON_SELF_PROFILE_CYPHER,
     UPDATE_PERSON_CYPHER,
@@ -41,6 +42,19 @@ class PersonService:
         if not rows:
             raise ResourceNotFoundError("We couldn't find that person in the network.")
         return self._to_profile(rows[0])
+
+    async def get_display_name(self, person_id: str) -> str | None:
+        """Just a name, for a caller that has no use for the rest of a profile.
+
+        Deliberately not built on ``get_profile``: that query is five
+        chained ``OPTIONAL MATCH``es for a profile screen's worth of data,
+        and calling it to read one field back off the result would still
+        pay for all of it. ``None`` for an unknown person, matching every
+        other "not found" outcome in this service that a header can render
+        as "signed out" rather than as an error.
+        """
+        rows = await self._graph.read(PERSON_NAME_CYPHER, {"person_id": person_id})
+        return str(rows[0]["name"]) if rows else None
 
     async def update_profile(self, person_id: str, update: ProfileUpdate) -> PersonProfile:
         changes = update.changed_fields()

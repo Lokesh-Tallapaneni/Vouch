@@ -86,6 +86,18 @@ RETURN p.id        AS id,
        [] AS mutual_connections
 """
 
+#: A single property, nothing else -- for callers that only need a name, not
+#: a profile. `get_current_account_name` (app/api/dependencies.py) used to
+#: call the full five-`OPTIONAL MATCH` profile query above just to read
+#: `.name` off the result, which put the single most expensive query in the
+#: app on the critical path of every signed-in page load, not just the
+#: profile screen. No `OPTIONAL MATCH`, no `collect()` -- this is as close to
+#: the ~500ms network floor as any query in this codebase gets.
+PERSON_NAME_CYPHER = """
+MATCH (p:Person {id: $person_id})
+RETURN p.name AS name
+"""
+
 #: Updates are a whitelisted property map, never an interpolated SET clause.
 #: `p += $changes` merges only the supplied keys, which is exactly PATCH
 #: semantics and cannot be coerced into writing a property the API did not

@@ -53,6 +53,20 @@ async def test_viewing_your_own_profile_skips_the_mutual_connections_match() -> 
     assert "viewer_id" not in graph.calls[0].params
 
 
+async def test_get_display_name_returns_the_name() -> None:
+    # A dedicated, minimal round trip -- one property, no OPTIONAL MATCH, no
+    # collect() -- for callers that only need the name (the signed-in
+    # header) and would otherwise pay for the full five-clause profile query
+    # just to read one field off it.
+    graph = FakeGraph({"RETURN p.name AS name": [{"name": "Priya Sharma"}]})
+    assert await PersonService(graph).get_display_name("p0001") == "Priya Sharma"
+    assert "OPTIONAL MATCH" not in graph.calls[0].cypher
+
+
+async def test_get_display_name_returns_none_for_an_unknown_person() -> None:
+    assert await PersonService(FakeGraph({})).get_display_name("ghost") is None
+
+
 async def test_update_profile_writes_only_the_supplied_fields() -> None:
     graph = FakeGraph({"SET p += $changes": [PROFILE_ROW], "OPTIONAL MATCH": [PROFILE_ROW]})
     await PersonService(graph).update_profile("p0001", ProfileUpdate(title="Principal Engineer"))
