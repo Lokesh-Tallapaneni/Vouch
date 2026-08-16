@@ -435,11 +435,44 @@ def _assign_teams(
     return team_of
 
 
+#: Fallback strength for the "nobody is isolated" safety net (layer 6 in
+#: ``build_network``). These edges are not a relationship signal -- they exist
+#: only so a person who nothing else connected still has a profile that
+#: renders -- so the value is fixed and deliberately low, never computed by
+#: ``_tie_strength``, and should never outrank a genuine tie.
+ISOLATED_PERSON_FALLBACK_STRENGTH = 0.3
+
+
+# -----------------------------------------------------------------------
+# Tie strength has three independent sources, not one function. This block
+# is the canonical explanation of all three; it belongs in the README (a
+# later task), but until that section exists this comment is where the
+# reasoning actually lives, not a forward reference to a document nobody has
+# written yet.
+#
+# 1. ``_tie_strength()`` immediately below -- the general formula, used for
+#    every edge the random layers (team, project, former-colleague, broker)
+#    propose. Same-team-ness, shared projects, and years overlapping each
+#    nudge it up; a small random term keeps two structurally identical edges
+#    from landing on identical strengths.
+# 2. ``PROTAGONIST_FORMER_COLLEAGUE_STRENGTHS`` (defined above, near the
+#    other protagonist constants) -- explicit, hand-picked values for the
+#    protagonist's curated doorway into their previous employer. These
+#    bypass the formula on purpose: the formula produces a fairly narrow band
+#    of "plausible colleague" strengths, and fix round 3 needed the
+#    protagonist's best route into that one company to be *visibly* more
+#    confident than a route into a company reached only through the general
+#    layers (see ``validate_snapshot``'s confidence-spread assertion). A
+#    formula output could have landed there by chance at some seeds and not
+#    others; a fixed value guarantees it, deterministically, every time.
+# 3. ``ISOLATED_PERSON_FALLBACK_STRENGTH`` above -- a flat, low constant for
+#    the "nobody is isolated" safety net. Not a relationship signal at all.
+# -----------------------------------------------------------------------
 def _tie_strength(
     rng: random.Random, *, same_team: bool, shared_projects: int, overlap_years: int
 ) -> float:
-    """The one place a tie strength is computed. Documented in the README so the
-    number is never magic."""
+    """Tie-strength source 1 of 3 -- see the comment block above this
+    function for the other two and why they bypass this formula."""
     strength = (
         0.15
         + 0.35 * (1.0 if same_team else 0.0)
@@ -693,7 +726,12 @@ def build_network(seed: int = 42) -> NetworkSnapshot:
     connected = {a for a, _ in link.edges} | {b for _, b in link.edges}
     for person in people:
         if person.id not in connected:
-            link(person.id, rng.choice([i for i in all_ids if i != person.id]), "team", 0.3)
+            link(
+                person.id,
+                rng.choice([i for i in all_ids if i != person.id]),
+                "team",
+                ISOLATED_PERSON_FALLBACK_STRENGTH,
+            )
 
     return NetworkSnapshot(
         people=people,
@@ -782,15 +820,76 @@ def validate_snapshot(snapshot: NetworkSnapshot) -> None:
     some far, confidence visibly different -- because that spread is the
     thing route-ranking exists to demonstrate.
 
+    It also checks referential integrity: every person_id, company, team,
+    project and skill reference resolves within the snapshot. That guarantee
+    holds today only because of how the generator code happens to be
+    written -- nothing enforced it -- and a dangling reference would
+    otherwise ship silently, surfacing downstream as a `MATCH` no-op during
+    load rather than an error anywhere.
+
     Raises:
         AssertionError: if the topology would make the demo queries boring,
-            empty, thin, or make every route look equally (un)confident.
+            empty, thin, or make every route look equally (un)confident; or
+            if any reference in the snapshot doesn't resolve.
     """
     ids = {person.id for person in snapshot.people}
     edges = snapshot.acquaintances
     connected = {e.from_id for e in edges} | {e.to_id for e in edges}
     assert ids - connected == set(), "some people are isolated -- an empty, broken-looking profile"
     assert PROTAGONIST_ID in ids, "protagonist missing"
+
+    # Referential integrity. Every person_id/company/team/project/skill
+    # reference is *structurally* guaranteed to resolve today, because each
+    # is always drawn from the same canonical list that populates the
+    # matching output collection -- but that guarantee lives entirely in how
+    # the code happens to be written. A typo'd company string, or a team
+    # assignment that drifts from what ``teams`` enumerates, would ship
+    # silently and then surface downstream as a Cypher ``MATCH`` no-op during
+    # load: the relationship is simply absent, with no error at either layer.
+    company_names = {c.name for c in snapshot.companies}
+    team_names = set(snapshot.teams)
+    project_names = {p["name"] for p in snapshot.projects}
+    skill_names = set(snapshot.skills)
+
+    for employment in snapshot.employments:
+        assert employment.person_id in ids, (
+            f"employments: person_id {employment.person_id!r} is not in people"
+        )
+        assert employment.company in company_names, (
+            f"employments: company {employment.company!r} (person {employment.person_id!r}) "
+            "is not in companies"
+        )
+    for membership in snapshot.memberships:
+        assert membership.person_id in ids, (
+            f"memberships: person_id {membership.person_id!r} is not in people"
+        )
+        assert membership.team in team_names, (
+            f"memberships: team {membership.team!r} (person {membership.person_id!r}) "
+            "is not in teams"
+        )
+    for assignment in snapshot.assignments:
+        assert assignment.person_id in ids, (
+            f"assignments: person_id {assignment.person_id!r} is not in people"
+        )
+        assert assignment.project in project_names, (
+            f"assignments: project {assignment.project!r} (person {assignment.person_id!r}) "
+            "is not in projects"
+        )
+    for skill_link in snapshot.skill_links:
+        assert skill_link.person_id in ids, (
+            f"skill_links: person_id {skill_link.person_id!r} is not in people"
+        )
+        assert skill_link.skill in skill_names, (
+            f"skill_links: skill {skill_link.skill!r} (person {skill_link.person_id!r}) "
+            "is not in skills"
+        )
+    for acquaintance_edge in edges:
+        assert acquaintance_edge.from_id in ids, (
+            f"acquaintances: from_id {acquaintance_edge.from_id!r} is not in people"
+        )
+        assert acquaintance_edge.to_id in ids, (
+            f"acquaintances: to_id {acquaintance_edge.to_id!r} is not in people"
+        )
 
     adjacency: dict[str, set[str]] = {pid: set() for pid in ids}
     for edge in edges:

@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from app.models.snapshot import NetworkSnapshot
+import pytest
+
+from app.models.snapshot import AcquaintanceSeed, NetworkSnapshot
 from scripts.generate import PROTAGONIST_ID, build_network, validate_snapshot
 
 #: Matches ``PATH_FINDER_DEFAULT_MAX_HOPS`` in ``scripts.generate`` -- not
@@ -246,3 +248,69 @@ def test_best_route_confidence_spans_at_least_two_x_across_companies() -> None:
 
 def test_validate_accepts_a_generated_snapshot() -> None:
     validate_snapshot(build_network())  # must not raise
+
+
+# --- Referential integrity: adversarial, not confirmatory -----------------
+#
+# A test that only checks a clean snapshot passes proves nothing about
+# whether the referential-integrity assertions actually fire. Each test here
+# takes a real, valid snapshot and deliberately corrupts exactly one
+# reference, then asserts ``validate_snapshot`` catches it. The structural
+# guarantee ("every reference is always drawn from the same canonical list
+# that populates the target collection") lives entirely in how the generator
+# happens to be written -- these tests are what would catch a typo or a
+# refactor that quietly breaks that guarantee.
+
+
+def test_validate_rejects_a_dangling_person_id_in_employments() -> None:
+    snapshot = build_network()
+    snapshot.employments[0].person_id = "nonexistent-person"
+    with pytest.raises(AssertionError, match="employments"):
+        validate_snapshot(snapshot)
+
+
+def test_validate_rejects_an_unknown_company_in_employments() -> None:
+    snapshot = build_network()
+    snapshot.employments[0].company = "Not A Real Company"
+    with pytest.raises(AssertionError, match="is not in companies"):
+        validate_snapshot(snapshot)
+
+
+def test_validate_rejects_an_unknown_team_in_memberships() -> None:
+    snapshot = build_network()
+    snapshot.memberships[0].team = "Not A Real Team"
+    with pytest.raises(AssertionError, match="is not in teams"):
+        validate_snapshot(snapshot)
+
+
+def test_validate_rejects_an_unknown_project_in_assignments() -> None:
+    snapshot = build_network()
+    snapshot.assignments[0].project = "Not A Real Project"
+    with pytest.raises(AssertionError, match="is not in projects"):
+        validate_snapshot(snapshot)
+
+
+def test_validate_rejects_an_unknown_skill_in_skill_links() -> None:
+    snapshot = build_network()
+    snapshot.skill_links[0].skill = "Not A Real Skill"
+    with pytest.raises(AssertionError, match="is not in skills"):
+        validate_snapshot(snapshot)
+
+
+def test_validate_rejects_a_dangling_person_id_in_acquaintances() -> None:
+    # Appends rather than mutates an existing edge: renaming an endpoint on a
+    # real edge risks orphaning whoever that edge was that person's only
+    # connection, which would trip the isolation assertion first and mask
+    # the referential-integrity check this test targets.
+    snapshot = build_network()
+    snapshot.acquaintances.append(
+        AcquaintanceSeed(
+            from_id=PROTAGONIST_ID,
+            to_id="nonexistent-person",
+            strength=0.5,
+            since=2024,
+            context="team",
+        )
+    )
+    with pytest.raises(AssertionError, match="acquaintances"):
+        validate_snapshot(snapshot)
