@@ -586,6 +586,32 @@ def test_a_person_page_route_gets_an_intro_message_disclosure() -> None:
     assert "Hi Priya Sharma," in response.text
 
 
+def test_the_intro_message_textarea_carries_an_id_or_name() -> None:
+    # aria-label alone gives the field an accessible name but not an
+    # identity -- Chrome's devtools autofill lint ("a form field element
+    # should have an id or name attribute") looks for id/name specifically,
+    # not for any accessible-name mechanism.
+    #
+    # Either attribute clears the lint, so this asserts the requirement
+    # rather than the choice. We use `name`: `id` must be unique per page,
+    # and the only index available inside an included partial is the
+    # caller's `loop`, which restarts per loop -- two route lists on one
+    # page would emit colliding ids. `name` has no uniqueness rule, and
+    # nothing submits this field.
+    graph = FakeGraph(
+        {
+            "MATCH (insider:Person)-[:WORKED_AT {current: true}]->(:Company {name: $company})": [
+                _EVERLINE_INSIDER
+            ]
+        }
+    )
+    with _client(graph) as client:
+        response = client.get("/companies/Everline")
+    match = re.search(r'<textarea class="intro__message"[^>]*>', response.text)
+    assert match is not None
+    assert re.search(r'\b(id|name)="[^"]+"', match.group(0)) is not None
+
+
 def test_no_inline_script_was_introduced_by_the_intro_feature() -> None:
     # script-src 'self' blocks inline script outright -- the same trap
     # that silently broke sign-out's hx-on earlier. Regression guard:
