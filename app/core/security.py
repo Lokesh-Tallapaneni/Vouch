@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from veloce import decode_jwt, encode_jwt, hash_password, verify_password
+from veloce import JWTError, decode_jwt, encode_jwt, hash_password, verify_password
 
 from app.core.logging import get_logger
 from app.models.account import SessionClaims
@@ -50,11 +50,18 @@ def verify_account_password(raw: str, hashed: str) -> bool:
     Veloce's `verify_password(stored, candidate)` already returns False
     (never raises) for a malformed `stored` value; the try/except is a second
     line of defence so a future change to that contract still can't turn a
-    corrupted row into a 500 here.
+    corrupted row into a 500 here. Because `verify_password` documents that it
+    never raises, there is no enumerable set of exception types to narrow this
+    to -- unlike `read_session_token` below, this stays a broad catch on
+    purpose, logged so it is visible rather than silent if it is ever hit.
     """
     try:
         return bool(verify_password(hashed, raw))
-    except Exception:  # noqa: BLE001 -- any failure here is simply "no match"
+    except Exception as exc:  # noqa: BLE001 -- any failure here is simply "no match"
+        # A warning, not debug/info: reaching this branch at all means a
+        # stored hash didn't parse, which points at data corruption an
+        # operator wants to know about -- unlike an ordinary bad password.
+        log.warning("stored password hash could not be verified: %s", type(exc).__name__)
         return False
 
 
@@ -76,15 +83,30 @@ def read_session_token(token: str, secret: str) -> SessionClaims | None:
     """Verify and decode a token.
 
     Returns None for anything untrustworthy -- bad signature, expiry,
-    malformed input, missing claims. Callers treat None as "signed out" and
-    never as an error, so a stale cookie can never 500 a page.
+    unlisted algorithm, malformed input, missing/mistyped claims. Callers
+    treat None as "signed out" and never as an error, so a stale cookie can
+    never 500 a page.
+
+    Catches `JWTError` specifically, not `Exception`: that is the complete,
+    enumerable hierarchy `decode_jwt` raises for every way a *token* can be
+    untrustworthy (bad signature, expiry, unsupported algorithm, malformed
+    segments, missing claims -- see `veloce.security.jwt`). It does not catch
+    the plain `ValueError` `decode_jwt` raises for an empty algorithms
+    allow-list or an empty secret, which Veloce raises loudly on purpose:
+    those describe a misconfigured caller, not an untrustworthy token, and
+    silently downgrading that to "signed out" would hide a real bug (e.g. an
+    empty JWT secret) behind an ordinary-looking logged-out state.
     """
     try:
         payload = decode_jwt(token, secret, algorithms=[_ALGORITHM])
-    except Exception:  # noqa: BLE001 -- every failure mode means "not signed in"
+    except JWTError as exc:
+        # Never log the token or secret -- the token is a bearer credential.
+        # The exception type is enough to debug a real problem without it.
+        log.info("session token rejected: %s", type(exc).__name__)
         return None
 
     account_id, person_id = payload.get("sub"), payload.get("pid")
     if not isinstance(account_id, str) or not isinstance(person_id, str):
+        log.info("session token rejected: missing or mistyped claims")
         return None
     return SessionClaims(account_id=account_id, person_id=person_id)
