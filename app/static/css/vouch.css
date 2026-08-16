@@ -321,9 +321,11 @@ a:hover { text-decoration-thickness: 2px; }
 .confidence[data-strength="weak"]   { color: var(--conf-weak); }
 
 /* --- Cards and lists -------------------------------------------------------
-   Company insiders and network brokers are ranked lists of people; each row
-   is a small card so a route diagram has room to breathe inside it. */
-.insiders, .routes, .results { list-style: none; margin: 0; padding: 0; }
+   Network brokers are still a ranked list of small cards -- one row of
+   content each, no chain diagram to make room for since brokers don't carry
+   one. Company insiders and a person's own routes moved to the denser
+   bordered-list-of-rows treatment; see .insider-rows/.route-rows below. */
+.insiders, .results { list-style: none; margin: 0; padding: 0; }
 
 .insiders > li {
   background: var(--surface);
@@ -336,19 +338,6 @@ a:hover { text-decoration-thickness: 2px; }
 .insiders h2 a { text-decoration: none; color: var(--ink); }
 .insiders h2 a:hover { color: var(--accent); text-decoration: underline; text-decoration-thickness: 2px; }
 
-.routes > li {
-  background: var(--surface);
-  border: 1px solid var(--rule);
-  border-radius: var(--radius);
-  padding: var(--s3) var(--s5);
-  margin-bottom: var(--s3);
-}
-
-/* A row header: name and title on the left, confidence pinned right. */
-.row-head {
-  display: flex; align-items: baseline; justify-content: space-between;
-  gap: var(--s4); flex-wrap: wrap;
-}
 .row-head__meta { color: var(--muted); font-size: 0.9rem; }
 
 /* --- States ----------------------------------------------------------------
@@ -552,7 +541,7 @@ button:hover, input[type="submit"]:hover { filter: brightness(1.15); }
      floor to overflow past. */
   .site-header__nav { margin-left: 0; width: 100%; flex-wrap: wrap; }
   .site-main { padding: var(--s5) var(--s4) var(--s7); }
-  .insiders > li, .routes > li { padding: var(--s4); }
+  .insiders > li { padding: var(--s4); }
   input[type="text"], input[type="email"], input[type="password"], input[type="search"] {
     max-width: 100%;
   }
@@ -822,4 +811,40 @@ button:hover, input[type="submit"]:hover { filter: brightness(1.15); }
      intro" in half at 390px. */
   .insider-row__summary { row-gap: var(--s2); }
   .insider-row__name, .insider-row__title { flex-basis: 100%; }
+}
+
+/* --- Person page: routes to one target -------------------------------------
+   Same density fix as the company page's insider rows, without the grouping
+   half: a person page shows routes to *one* target, so grouping by first hop
+   would mostly collapse to one group of one -- a header restating what the
+   single row underneath it already says. Each route still shrinks from an
+   always-open card to a row that opens on demand for its chain and draft. */
+.route-rows {
+  list-style: none; margin: 0; padding: 0;
+  border: 1px solid var(--rule); border-radius: var(--radius);
+  background: var(--surface); overflow: hidden;
+}
+.route-rows > li + li { border-top: 1px solid var(--rule); }
+
+.route-row { list-style: none; }
+.route-row::-webkit-details-marker,
+.route-row summary::-webkit-details-marker { display: none; }
+.route-row__summary {
+  display: flex; align-items: center; gap: var(--s4); flex-wrap: wrap;
+  padding: var(--s3) var(--s4);
+  list-style: none;
+  cursor: pointer;
+}
+.route-row__summary:hover { background: var(--paper); }
+.route-row__meta { color: var(--muted); font-size: 0.9rem; flex: 1 1 16rem; }
+.route-row__action {
+  color: var(--accent); font-size: 0.85rem; font-weight: 600;
+  flex: none; margin-left: auto; white-space: nowrap;
+}
+.route-row__detail { padding: 0 var(--s4) var(--s4); }
+.route-row__detail .chain { padding-top: 0; }
+
+@media (max-width: 46rem) {
+  .route-row__summary { row-gap: var(--s2); }
+  .route-row__meta { flex-basis: 100%; }
 }

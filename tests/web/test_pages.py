@@ -632,8 +632,41 @@ def test_a_person_page_route_gets_an_intro_message_disclosure() -> None:
     )
     with _client(graph) as client:
         response = client.get("/people/p0001")
-    assert "Ask Priya Sharma for an intro" in response.text
+    # No "Ask Priya Sharma for an intro" toggle nested inside the row's own
+    # disclosure: the row's meta line already names whoever the draft
+    # reaches (the intermediary on a multi-hop route, or -- as here, a
+    # direct connection -- there's no one else to name), so a second
+    # toggle making the same point would be the same redundancy the
+    # company page's grouped rows exist to avoid.
+    assert "Draft intro" in response.text
     assert "Hi Priya Sharma," in response.text
+
+
+def test_the_person_page_renders_routes_as_compact_disclosure_rows() -> None:
+    # A person page shows routes to *one* target, so grouping by first hop
+    # (the company page's redesign) would mostly collapse to one group of
+    # one -- a header that earns nothing. The density half of that redesign
+    # -- a compact row that opens to reveal the chain and the draft,
+    # instead of a card that always shows both -- still applies here.
+    graph = FakeGraph(
+        {
+            "OPTIONAL MATCH": [PROFILE_ROW],
+            "allShortestPaths": [
+                {
+                    "chain": ["Lokesh Tallapaneni", "Ananya Kowalski", "Priya Sharma"],
+                    "contexts": ["team", "project"],
+                    "strengths": [0.78, 0.55],
+                    "hops": 2,
+                    "confidence": 0.44,
+                }
+            ],
+        }
+    )
+    with _client(graph) as client:
+        response = client.get("/people/p0001")
+    assert '<details class="route-row">' in response.text
+    assert "2 hops" in response.text
+    assert "via Ananya Kowalski" in response.text
 
 
 def test_the_intro_message_textarea_carries_an_id_or_name() -> None:
