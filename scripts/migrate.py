@@ -21,9 +21,11 @@ import asyncio
 import hashlib
 import re
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Any, Protocol
 
 from app.core.logging import configure_logging, get_logger
 from app.core.settings import get_settings
@@ -58,6 +60,19 @@ _NUMERIC_PREFIX = re.compile(r"^(\d+)_")
 
 class MigrationConflictError(RuntimeError):
     """An already-applied migration was edited on disk."""
+
+
+class SupportsRead(Protocol):
+    """Structural type for anything that can answer a read query.
+
+    Lets ``fetch_applied`` -- and the pending-migrations guard the loader
+    builds on it -- be exercised against ``FakeGraph`` in tests, rather than
+    depending on the concrete ``GraphClient`` class.
+    """
+
+    async def read(
+        self, cypher: str, params: Mapping[str, Any] | None = None, *, timeout: float | None = None
+    ) -> list[dict[str, Any]]: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,7 +152,7 @@ def find_pending(discovered: list[Migration], applied: dict[str, str]) -> list[M
     return pending
 
 
-async def fetch_applied(graph: GraphClient) -> dict[str, str]:
+async def fetch_applied(graph: SupportsRead) -> dict[str, str]:
     return {row["id"]: row["checksum"] for row in await graph.read(APPLIED_MIGRATIONS_CYPHER)}
 
 
@@ -203,10 +218,18 @@ async def main() -> int:
     settings = get_settings()
     configure_logging(settings)
     async with GraphClient.connect(settings) as graph:
-        if args.status:
-            await print_status(graph)
-        else:
-            await apply_migrations(graph, dry_run=args.dry_run)
+        try:
+            if args.status:
+                await print_status(graph)
+            else:
+                await apply_migrations(graph, dry_run=args.dry_run)
+        except MigrationConflictError as exc:
+            # Expected operator error, not a crash: an edited migration is a
+            # designed refusal (and the caller's exit-code check on this
+            # process is what stops `migrate && uvicorn` booting against a
+            # diverged schema), so it gets a clean message, not a traceback.
+            log.error(str(exc))
+            return 1
     return 0
 
 

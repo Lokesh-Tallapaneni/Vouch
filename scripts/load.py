@@ -28,7 +28,14 @@ from app.core.settings import get_settings
 from app.db.client import GraphClient
 from app.models.snapshot import NetworkSnapshot
 from scripts.generate import SNAPSHOT_PATH
-from scripts.migrate import discover_migrations, fetch_applied, find_pending
+from scripts.migrate import (
+    MIGRATIONS_DIR,
+    MigrationConflictError,
+    SupportsRead,
+    discover_migrations,
+    fetch_applied,
+    find_pending,
+)
 
 log = get_logger("load")
 
@@ -100,6 +107,10 @@ class SupportsWrite(Protocol):
     ) -> list[dict[str, Any]]: ...
 
 
+class PendingMigrationsError(RuntimeError):
+    """Migrations are pending; refusing to load data ahead of them."""
+
+
 @dataclass(frozen=True, slots=True)
 class LoadReport:
     nodes_written: int
@@ -161,6 +172,30 @@ async def load_snapshot(
     return LoadReport(nodes_written=nodes, relationships_written=relationships)
 
 
+async def ensure_migrations_applied(graph: SupportsRead, migrations_dir: Path) -> None:
+    """Refuse to proceed while migrations are pending.
+
+    This is a correctness gate, not a nicety: loading people without the
+    uniqueness constraint on ``Person.id`` silently creates duplicate nodes,
+    and nothing surfaces it until every path query returns doubled routes --
+    by which point the wrong layer is being debugged. Pulled out of ``main()``
+    so the gate is exercisable against ``FakeGraph`` in tests instead of only
+    live, where an untested guard could quietly stop working.
+
+    Raises:
+        PendingMigrationsError: naming every migration id still pending.
+        MigrationConflictError: an applied migration's checksum no longer
+            matches the file on disk (raised by ``find_pending``).
+    """
+    pending = find_pending(discover_migrations(migrations_dir), await fetch_applied(graph))
+    if pending:
+        raise PendingMigrationsError(
+            f"refusing to load with {len(pending)} pending migration(s): "
+            f"{', '.join(m.id for m in pending)}. "
+            "Loading without uniqueness constraints silently duplicates people."
+        )
+
+
 async def main() -> int:
     parser = argparse.ArgumentParser(description="Load the seed snapshot.")
     parser.add_argument("--snapshot", type=Path, default=SNAPSHOT_PATH)
@@ -174,14 +209,12 @@ async def main() -> int:
     snapshot = NetworkSnapshot.model_validate(json.loads(args.snapshot.read_text(encoding="utf-8")))
 
     async with GraphClient.connect(settings) as graph:
-        pending = find_pending(discover_migrations(Path("migrations")), await fetch_applied(graph))
-        if pending:
-            log.error(
-                "refusing to load with %d pending migration(s): %s. "
-                "Loading without uniqueness constraints silently duplicates people.",
-                len(pending),
-                ", ".join(m.id for m in pending),
-            )
+        try:
+            await ensure_migrations_applied(graph, MIGRATIONS_DIR)
+        except (PendingMigrationsError, MigrationConflictError) as exc:
+            # Both are expected operator errors -- a designed refusal, not a
+            # crash -- so they get a clean message and exit 1, not a traceback.
+            log.error(str(exc))
             return 1
 
         if args.reset:

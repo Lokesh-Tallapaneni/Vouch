@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+from pathlib import Path
+
+import pytest
+
 from scripts.generate import build_network
-from scripts.load import batched, load_snapshot
+from scripts.load import PendingMigrationsError, batched, ensure_migrations_applied, load_snapshot
+from scripts.migrate import checksum_of
 from tests.support.fake_graph import FakeGraph
 
 
@@ -40,3 +45,20 @@ async def test_loading_is_idempotent_every_statement_is_merge_shaped() -> None:
     for call in graph.calls:
         assert "MERGE" in call.cypher, f"non-idempotent statement issued: {call.cypher!r}"
         assert "CREATE" not in call.cypher
+
+
+async def test_ensure_migrations_applied_refuses_and_names_pending_ids(tmp_path: Path) -> None:
+    (tmp_path / "0001_x.cypher").write_text("RETURN 1;", encoding="utf-8")
+    (tmp_path / "0002_y.cypher").write_text("RETURN 2;", encoding="utf-8")
+    graph = FakeGraph()  # no rows recorded -- nothing applied yet
+    with pytest.raises(PendingMigrationsError, match="0001_x") as excinfo:
+        await ensure_migrations_applied(graph, tmp_path)
+    assert "0002_y" in str(excinfo.value), "message should name every pending migration"
+
+
+async def test_ensure_migrations_applied_proceeds_when_none_pending(tmp_path: Path) -> None:
+    (tmp_path / "0001_x.cypher").write_text("RETURN 1;", encoding="utf-8")
+    graph = FakeGraph(
+        {"MATCH (m:_Migration)": [{"id": "0001_x", "checksum": checksum_of("RETURN 1;")}]}
+    )
+    await ensure_migrations_applied(graph, tmp_path)  # must not raise
