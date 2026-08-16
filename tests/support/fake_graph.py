@@ -5,7 +5,13 @@ and that the right parameters were sent. Neither needs a database, and a unit
 suite that opens sockets is a unit suite that fails on a train.
 
 Rows are keyed by a distinctive fragment of the query rather than by the whole
-string, so reformatting Cypher does not break unrelated tests.
+string, so reformatting Cypher does not break unrelated tests. Choose a
+fragment specific enough that it cannot also appear in another fragment
+registered in the same test -- two fragments that both match one query raise
+:class:`AmbiguousFragmentError` rather than silently returning whichever was
+registered first, because a first-match-wins resolution turns a fixture
+mistake into an assertion against the wrong rows, and the resulting failure
+would surface in whatever service is under test, not here.
 
 Covers the whole surface of ``app.db.client.GraphClient`` that the app
 actually calls, not just ``read``/``write``: ``/ready`` calls ``.check()``,
@@ -20,6 +26,15 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
+
+
+class AmbiguousFragmentError(Exception):
+    """A query matched more than one registered fragment.
+
+    Raised instead of resolved, because silently picking the first
+    registration in insertion order would make the fixture author's mistake
+    someone else's assertion failure, in a file they didn't touch.
+    """
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,7 +79,12 @@ class FakeGraph:
         self, cypher: str, params: Mapping[str, Any] | None, *, write: bool
     ) -> list[dict[str, Any]]:
         self.calls.append(RecordedCall(cypher, dict(params or {}), write))
-        for fragment, rows in self.rows_by_fragment.items():
-            if fragment in cypher:
-                return rows
+        matches = [fragment for fragment in self.rows_by_fragment if fragment in cypher]
+        if len(matches) > 1:
+            raise AmbiguousFragmentError(
+                f"query {cypher!r} matched more than one registered fragment: {matches!r}. "
+                "Register fragments specific enough not to collide."
+            )
+        if matches:
+            return self.rows_by_fragment[matches[0]]
         return []
