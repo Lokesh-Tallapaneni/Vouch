@@ -722,6 +722,31 @@ button:hover, input[type="submit"]:hover { filter: brightness(1.15); }
    stack in one box, so each gets a tighter vertical rhythm than a standalone
    route card needs. */
 .trunk-box .chain { padding: var(--s3) 0 var(--s2); }
+/* A trunk is always exactly one segment ("you -> the person you'd ask"),
+   where a route card's chain has three or four. `.chain__link`'s
+   `flex: 1 1` is right there and wrong here: with nothing to share the row
+   with, that single segment absorbs the full width and draws an 800px bar
+   of flat colour between two names. Segment length carries no meaning in
+   this design -- colour and thickness do -- so a stretched line is not
+   just ugly, it implies a distance that isn't real. Fixed length, no
+   growth, and the row packs to the left. */
+.trunk-box .chain__link { flex: 0 0 7rem; }
+.trunk-box .chain { justify-content: flex-start; }
+/* With the segment no longer stretching, a node's dot -- centred over a
+   name as long as "Ananya Kowalski" -- ends up half a label away from the
+   line that is supposed to reach it, leaving the track visibly detached
+   from its own stop. Aligning the dot to the start of the label puts it
+   back on the end of the line. Only safe here, where every chain is a
+   single segment; a multi-segment route needs its dots centred so the
+   track passes through them. */
+.trunk-box .chain__node { align-items: flex-start; text-align: left; }
+/* Below 46rem the chain stacks vertically, so that 7rem stops being a
+   segment's length and becomes its height -- two trunks' worth of empty
+   track pushing the actual list off the first screen. Half as long reads
+   the same and costs half the scroll. */
+@media (max-width: 46rem) {
+  .trunk-box .chain__link { flex: 0 0 3.5rem; }
+}
 .trunk-box .legend { margin: var(--s2) 0 0; border: none; padding: 0; background: none; }
 
 .insider-group { margin-bottom: var(--s6); }
