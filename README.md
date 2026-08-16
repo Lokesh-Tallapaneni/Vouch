@@ -36,6 +36,14 @@ describing one:
 ![The Vouch landing page, with an example route diagram and entry points for
 searching companies or people](docs/screenshot-landing.png)
 
+Network health answers the question a relational schema handles worst — who
+is the *only* bridge between two teams that otherwise share nobody, and which
+skills rest on a single person:
+
+![The network health page, listing brokers ranked by how many team pairs each
+one uniquely connects, and bus-factor risks grouped by
+project](docs/screenshot-network.png)
+
 ---
 
 ## The problem
