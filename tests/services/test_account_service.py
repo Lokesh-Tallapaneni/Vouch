@@ -22,7 +22,11 @@ def _account_row(email: str = "a@b.com", hashed: str | None = None) -> dict[str,
 
 
 async def test_register_returns_the_created_account() -> None:
-    graph = FakeGraph({"MERGE (a:Account": [_account_row()], "MATCH (p:Person": [{"id": "me"}]})
+    # "RETURN p.id AS id" (PERSON_EXISTS_CYPHER's own clause), not
+    # "MATCH (p:Person" -- CREATE_ACCOUNT_CYPHER also MATCHes the person it is
+    # attaching the new account to, so that fragment matches both statements
+    # and FakeGraph raises AmbiguousFragmentError rather than picking one.
+    graph = FakeGraph({"MERGE (a:Account": [_account_row()], "RETURN p.id AS id": [{"id": "me"}]})
     account = await AccountService(graph).register(
         AccountCreate(email="a@b.com", password="correct horse battery", person_id="me")
     )
@@ -30,7 +34,7 @@ async def test_register_returns_the_created_account() -> None:
 
 
 async def test_register_never_sends_the_raw_password_to_the_graph() -> None:
-    graph = FakeGraph({"MERGE (a:Account": [_account_row()], "MATCH (p:Person": [{"id": "me"}]})
+    graph = FakeGraph({"MERGE (a:Account": [_account_row()], "RETURN p.id AS id": [{"id": "me"}]})
     await AccountService(graph).register(
         AccountCreate(email="a@b.com", password="correct horse battery", person_id="me")
     )
@@ -39,7 +43,7 @@ async def test_register_never_sends_the_raw_password_to_the_graph() -> None:
 
 
 async def test_register_rejects_an_unknown_person_id() -> None:
-    graph = FakeGraph({"MATCH (p:Person": []})
+    graph = FakeGraph({"RETURN p.id AS id": []})
     with pytest.raises(ResourceNotFoundError):
         await AccountService(graph).register(
             AccountCreate(email="a@b.com", password="correct horse battery", person_id="ghost")
@@ -49,7 +53,7 @@ async def test_register_rejects_an_unknown_person_id() -> None:
 async def test_register_rejects_an_email_already_in_use() -> None:
     graph = FakeGraph(
         {
-            "MATCH (p:Person": [{"id": "me"}],
+            "RETURN p.id AS id": [{"id": "me"}],
             "MATCH (a:Account {email": [_account_row()],
         }
     )
