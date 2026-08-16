@@ -1,0 +1,855 @@
+/* ============================================================================
+   Vouch — visual system
+
+   Direction: transit map. A referral path IS a route: stops, interchanges,
+   and lines whose type tells you what kind of connection you're travelling on.
+   Metro diagrams are the canonical visual language for "how do I get from here
+   to there", they're legible to someone who has never seen this app, and they
+   already encode exactly what this product needs to say — which is why the
+   route diagram, not a card or a table, is the thing carrying the design.
+
+   Two faces, three line colours, one accent. Everything else is quiet so the
+   route can be loud.
+   ========================================================================= */
+
+/* --- Faces -----------------------------------------------------------------
+   Self-hosted, not CDN-linked. The CSP is `default-src 'self'` with no
+   external hosts, so a webfont CDN would simply be blocked — and vendoring
+   means the demo renders correctly offline and on a cold Render start.
+
+   Space Grotesk is the signage face: an engineered grotesque with enough
+   character to be recognisable, without the neutrality of Helvetica or the
+   ubiquity of Inter. It's a variable font, so 500 and 700 come from one file.
+   IBM Plex Mono is the data face — confidence scores, hop counts, contexts.
+   A person's name is never set in mono. A name is not a datum. */
+@font-face {
+  font-family: "Space Grotesk";
+  src: url("/static/fonts/SpaceGrotesk.woff2") format("woff2-variations");
+  font-weight: 300 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  src: url("/static/fonts/IBMPlexMono-400.woff2") format("woff2");
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  src: url("/static/fonts/IBMPlexMono-600.woff2") format("woff2");
+  font-weight: 600;
+  font-display: swap;
+}
+
+:root {
+  /* Ground and ink. A cool paper stock rather than a warm cream — this is a
+     wayfinding diagram, not a letterpress poster. */
+  --paper:    #F4F5F2;
+  --surface:  #FFFFFF;
+  --ink:      #14181B;
+  --muted:    #5B6670;
+  --rule:     #DCE0DC;
+  --accent:   #14304F;
+
+  /* Line identities. These are not "good / warning / bad" — they name the
+     three kinds of connection in the graph, the way a metro map names lines.
+     The context label under a segment and the segment's own colour therefore
+     say the same thing, which is why the labels can be small. */
+  --line-team:    #0B6E4F;
+  --line-project: #B4531A;
+  --line-former:  #3B5BA5;
+
+  /* Route confidence is a different quantity from per-hop tie strength — it's
+     the product along a whole chain, so it lives on its own scale. Calibrated
+     against the measured spread across the eight seeded companies
+     (0.20–0.88): strong ≥0.60, medium ≥0.40, weak below.
+     Medium and weak were originally 24° apart in hue (36°/12°) at similar
+     lightness -- close enough to read as "the same brownish colour" at
+     badge size. Widened to ~40° apart (gold vs. true red) at the same
+     darkness, so they stay distinct without weakening contrast against
+     --surface. */
+  --conf-strong: #0B6E4F;
+  --conf-medium: #8F6300;
+  --conf-weak:   #9C2B1F;
+
+  --font-display: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+
+  /* One spacing scale, used everywhere. Ad-hoc multiples of a single step are
+     how vertical rhythm quietly falls apart. */
+  --s1: 0.25rem; --s2: 0.5rem;  --s3: 0.75rem; --s4: 1rem;
+  --s5: 1.5rem;  --s6: 2rem;    --s7: 3rem;    --s8: 4rem;
+
+  --measure: 62ch;
+  --shell: 68rem;
+  --radius: 10px;
+
+  --station: 9px;      /* diameter of a stop on the route diagram */
+  --track: 2.5rem;     /* minimum length of one segment */
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper:   #101417;
+    --surface: #171C21;
+    --ink:     #E9EDEA;
+    --muted:   #97A3AD;
+    --rule:    #29323A;
+    --accent:  #9CC4EA;
+
+    --line-team:    #35B98A;
+    --line-project: #E08A4C;
+    --line-former:  #7FA0E0;
+
+    --conf-strong: #35B98A;
+    --conf-medium: #E0B23D;
+    --conf-weak:   #EF6B52;
+  }
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: 1rem;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Visible focus is not optional. Keyboard users are the reason this exists. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+
+/* --- Type scale ------------------------------------------------------------
+   A real scale with real jumps. The old 1.75 / 1.25 / 1rem sequence was so
+   close together that hierarchy had to be carried by weight alone. */
+h1, h2, h3 { font-family: var(--font-display); line-height: 1.15; margin: 0 0 var(--s3); }
+h1 { font-size: clamp(2rem, 1.4rem + 2.4vw, 3rem); font-weight: 700; letter-spacing: -0.025em; }
+h2 { font-size: clamp(1.35rem, 1.1rem + 0.9vw, 1.7rem); font-weight: 700; letter-spacing: -0.015em; }
+h3 { font-size: 1.05rem; font-weight: 600; letter-spacing: -0.005em; }
+p  { margin: 0 0 var(--s3); max-width: var(--measure); }
+a  { color: var(--accent); text-underline-offset: 3px; }
+a:hover { text-decoration-thickness: 2px; }
+
+/* A small uppercase label that names a region of the page. Used sparingly —
+   it earns its place only where a section needs naming without a heading. */
+.eyebrow {
+  font-family: var(--font-mono); font-size: 0.7rem; font-weight: 600;
+  letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted);
+  margin: 0 0 var(--s2);
+}
+
+.lede { font-size: 1.1rem; color: var(--muted); max-width: var(--measure); }
+
+/* ===========================================================================
+   THE ROUTE — the signature element
+   ===========================================================================
+   `You ●━━━━● Priya ●────● Arjun ┃ Meera`
+
+   Segment colour names the kind of connection; segment thickness names how
+   strong it is. Both come from the same underlying number, so they reinforce
+   rather than compete. Stations are drawn as rings on the line so the eye
+   reads it as one continuous journey rather than as separate name chips.
+   ========================================================================= */
+.chain {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 0 var(--s1);
+  padding: var(--s4) 0 var(--s5);
+  font-size: 0.95rem;
+}
+
+/* A stop. The dot sits on the track; the name hangs beneath it. */
+.chain__node {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s2);
+  font-weight: 600;
+  min-width: 4.5rem;
+  max-width: 9rem;
+  text-align: center;
+  line-height: 1.25;
+}
+.chain__node::before {
+  content: "";
+  width: var(--station); height: var(--station);
+  border-radius: 50%;
+  background: var(--surface);
+  border: 2.5px solid var(--ink);
+  flex: none;
+}
+/* Origin and terminus are marked differently — a route has a direction, and
+   the two ends are not interchangeable. */
+.chain__node--origin::before { background: var(--ink); }
+.chain__node--target::before {
+  border-radius: 2px;
+  width: 12px; height: 12px;
+  background: var(--accent); border-color: var(--accent);
+}
+
+/* A segment of track between two stops. */
+.chain__link {
+  position: relative;
+  flex: 1 1 var(--track);
+  min-width: var(--track);
+  height: var(--station);
+  display: flex;
+  align-items: center;
+}
+.chain__link::before {
+  content: "";
+  display: block;
+  width: 100%;
+  border-radius: 2px;
+}
+/* Colour and thickness are two different quantities, deliberately kept on
+   two different attributes rather than one derived from the other.
+
+   Colour = relationship context (how you know them) — `data-context`, set
+   from the same string as the label underneath, so the track and its
+   caption always agree. Context predicts strength almost perfectly but not
+   perfectly: the protagonist's one deliberately strong ex-colleague tie
+   (strength 0.88, on the demo's own Halcyon Media route) is the
+   counterexample. Deriving colour from strength instead of context made
+   that exact hop draw green ("same team") while its own label said
+   "former-colleague" — a diagram that contradicted itself on the one route
+   most likely to be demoed. Colour is set here, on `--line-color`, so the
+   thickness rules below can read it without knowing which context it came
+   from.
+   Thickness = tie strength, and only strength. Bands are calibrated against
+   the seeded dataset's measured per-hop distribution — team edges cluster
+   0.73–0.83, project edges 0.48–0.58, former-colleague edges around 0.29 —
+   so the bands sit between the clusters at ≥0.70 / ≥0.45 / below. Do not
+   "round them off" to 0.6/0.35: that put 92% of all edges in one band and
+   made the whole encoding say nothing. */
+.chain__link[data-context="team"]::before            { --line-color: var(--line-team); }
+.chain__link[data-context="project"]::before          { --line-color: var(--line-project); }
+.chain__link[data-context="former-colleague"]::before { --line-color: var(--line-former); }
+
+.chain__link[data-strength="strong"]::before { height: 7px; background: var(--line-color); }
+.chain__link[data-strength="medium"]::before { height: 4px; background: var(--line-color); }
+.chain__link[data-strength="weak"]::before {
+  height: 2px;
+  background: repeating-linear-gradient(90deg,
+    var(--line-color) 0 6px, transparent 6px 10px);
+}
+
+/* The context annotation, set like a station note beneath the track. */
+.chain__context {
+  position: absolute;
+  top: calc(50% + 7px);
+  left: 0; right: 0;
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Legend — makes the line system self-explanatory to someone who has never
+   seen the app. Without it the colours are decoration; with it they're a key. */
+.legend {
+  display: flex; flex-wrap: wrap; gap: var(--s2) var(--s5);
+  padding: var(--s3) var(--s4);
+  margin: 0 0 var(--s5);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  font-family: var(--font-mono); font-size: 0.72rem; color: var(--muted);
+}
+.legend__item { display: flex; align-items: center; gap: var(--s2); }
+/* Swatches key colour to context only -- uniform height, deliberately not
+   also showing the strength-driven thickness variation, so this legend
+   teaches one axis at a time. The fourth, textual `.legend__item` covers
+   the other axis ("thicker line = stronger tie"); see .chain__link above
+   for why the two are kept on separate attributes instead of one implying
+   the other. */
+.legend__swatch { display: block; width: 1.6rem; height: 4px; border-radius: 2px; }
+.legend__swatch[data-context="team"]             { background: var(--line-team); }
+.legend__swatch[data-context="project"]          { background: var(--line-project); }
+.legend__swatch[data-context="former-colleague"] { background: var(--line-former); }
+
+/* --- Confidence ------------------------------------------------------------
+   Set as a signal badge rather than loose text: it's the verdict on a route,
+   and it should be findable at a glance down a ranked list. */
+.confidence {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  font-size: 1.05rem;
+  line-height: 1;
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  padding: var(--s2) var(--s3);
+  border-radius: 8px;
+  border: 1.5px solid currentColor;
+  white-space: nowrap;
+  flex: none;
+}
+/* The number alone means nothing on first sight, so the badge can carry its
+   own label -- but the word comes from `data-label` in the markup, never
+   hardcoded here: this class is the app's tabular-figure treatment and is
+   reused for other quantities (the brokers list uses it for a count of
+   bridged team pairs), so a CSS-baked "confidence" would mislabel them. */
+.confidence[data-label]::before {
+  content: attr(data-label);
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.75;
+}
+.confidence[data-strength="strong"] { color: var(--conf-strong); }
+.confidence[data-strength="medium"] { color: var(--conf-medium); }
+.confidence[data-strength="weak"]   { color: var(--conf-weak); }
+
+/* --- Cards and lists -------------------------------------------------------
+   Network brokers are still a ranked list of small cards -- one row of
+   content each, no chain diagram to make room for since brokers don't carry
+   one. Company insiders and a person's own routes moved to the denser
+   bordered-list-of-rows treatment; see .insider-rows/.route-rows below. */
+.insiders, .results { list-style: none; margin: 0; padding: 0; }
+
+.insiders > li {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  padding: var(--s4) var(--s5);
+  margin-bottom: var(--s3);
+}
+.insiders h2, .insiders h3 { margin-bottom: var(--s1); }
+.insiders h2 a { text-decoration: none; color: var(--ink); }
+.insiders h2 a:hover { color: var(--accent); text-decoration: underline; text-decoration-thickness: 2px; }
+
+.row-head__meta { color: var(--muted); font-size: 0.9rem; }
+
+/* --- States ----------------------------------------------------------------
+   Loading, empty and error. An empty state is an invitation to act, so it is
+   given the same visual weight as content rather than being a bare line. */
+.state {
+  padding: var(--s5);
+  border: 1px dashed var(--rule);
+  border-radius: var(--radius);
+  background: var(--surface);
+  max-width: var(--measure);
+}
+.state--empty { color: var(--muted); }
+.state--empty p:first-child { color: var(--ink); font-weight: 600; }
+.state--error { border-style: solid; border-color: var(--conf-weak); }
+.state--loading {
+  display: flex; align-items: center; gap: var(--s3);
+  border-style: solid; color: var(--muted);
+}
+.state__spinner {
+  width: 1.1rem; height: 1.1rem; flex: none; border-radius: 50%;
+  border: 2px solid var(--rule); border-top-color: var(--accent);
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.htmx-indicator { opacity: 0; transition: opacity 150ms ease; }
+.htmx-request .htmx-indicator { opacity: 1; }
+
+/* --- Page chrome ---------------------------------------------------------- */
+.skip-link {
+  position: absolute; left: -999px; top: 0; z-index: 20;
+  padding: var(--s2) var(--s4);
+  background: var(--accent); color: var(--surface);
+  border-radius: 0 0 var(--radius) 0; font-weight: 600;
+}
+.skip-link:focus { left: 0; }
+
+.site-header {
+  background: var(--surface);
+  border-bottom: 1px solid var(--rule);
+}
+.site-header__bar {
+  display: flex; align-items: center; flex-wrap: wrap; gap: var(--s3);
+  max-width: var(--shell); margin: 0 auto; padding: var(--s3) var(--s5);
+}
+/* The brand carries a station mark — the same dot that opens every route
+   diagram, so the identity and the signature element are one idea. */
+.site-header__brand {
+  display: inline-flex; align-items: center; gap: var(--s2);
+  font-weight: 700; font-size: 1.15rem; letter-spacing: -0.02em;
+  color: var(--ink); text-decoration: none;
+}
+.site-header__brand::before {
+  content: ""; width: 10px; height: 10px; border-radius: 50%;
+  background: var(--ink); flex: none;
+}
+.site-header__tagline {
+  flex: 1 1 14rem; margin: 0; color: var(--muted); font-size: 0.85rem;
+}
+.site-header__nav {
+  display: flex; align-items: center; gap: var(--s4);
+  font-size: 0.9rem; margin-left: auto;
+}
+.site-header__account { color: var(--muted); font-family: var(--font-mono); font-size: 0.78rem; }
+.site-header__signout {
+  font: inherit; font-size: 0.9rem; color: var(--accent); background: none;
+  cursor: pointer; border: 1px solid var(--rule); border-radius: 999px;
+  padding: var(--s1) var(--s3);
+}
+.site-header__signout:hover { border-color: var(--accent); }
+
+.site-main { max-width: var(--shell); margin: 0 auto; padding: var(--s7) var(--s5) var(--s8); }
+section + section { margin-top: var(--s7); }
+
+.site-footer {
+  border-top: 1px solid var(--rule); color: var(--muted);
+  font-family: var(--font-mono); font-size: 0.72rem;
+  text-align: center; padding: var(--s5);
+}
+
+/* --- Forms ---------------------------------------------------------------- */
+label { display: inline-block; font-weight: 600; font-size: 0.85rem; margin-bottom: var(--s1); }
+input[type="text"], input[type="email"], input[type="password"], input[type="search"] {
+  font: inherit; color: var(--ink); background: var(--surface);
+  border: 1px solid var(--rule); border-radius: 8px;
+  padding: var(--s2) var(--s3); width: 100%; max-width: 26rem;
+}
+input:hover { border-color: var(--muted); }
+button, input[type="submit"] {
+  font: inherit; font-weight: 600; font-size: 0.95rem;
+  color: var(--surface); background: var(--accent);
+  border: none; border-radius: 999px; padding: var(--s2) var(--s5);
+  cursor: pointer;
+}
+button:hover, input[type="submit"]:hover { filter: brightness(1.15); }
+.field-error {
+  display: inline-block; color: var(--conf-weak);
+  font-family: var(--font-mono); font-size: 0.78rem; margin-top: var(--s1);
+}
+
+/* --- Search --------------------------------------------------------------- */
+.search-box { position: relative; max-width: 26rem; }
+.search-box .htmx-indicator {
+  display: flex; align-items: center; gap: var(--s2);
+  color: var(--muted); font-family: var(--font-mono); font-size: 0.75rem;
+  margin-top: var(--s2);
+}
+.results {
+  margin-top: var(--s2);
+  border: 1px solid var(--rule); border-radius: var(--radius);
+  background: var(--surface); overflow: hidden;
+}
+.results li + li { border-top: 1px solid var(--rule); }
+.results a {
+  display: flex; justify-content: space-between; align-items: baseline;
+  gap: var(--s3); padding: var(--s3) var(--s4);
+  text-decoration: none; color: var(--ink);
+}
+.results a:hover { background: var(--paper); }
+/* Name in full ink, supporting detail muted. Addressed by class rather than
+   the old blanket `.results span`, which would now grey out the name too --
+   the name is wrapped in its own span since the detail line grew from a
+   bare title to "title · employer". */
+.results__name { color: var(--ink); font-weight: 600; }
+.results__detail { color: var(--muted); font-size: 0.85rem; text-align: right; }
+
+/* The sign-up claim widget's results are buttons, not links -- selecting
+   one posts a selection rather than navigating away (see
+   _claim_search_results.html) -- so they need their own reset on top of
+   the shared .results row layout `a` already gets. */
+.claim-option {
+  display: flex; justify-content: space-between; align-items: baseline;
+  gap: var(--s3); padding: var(--s3) var(--s4); width: 100%;
+  font: inherit; text-align: left; color: var(--ink);
+  background: none; border: none; cursor: pointer;
+}
+.claim-option:hover { background: var(--paper); }
+
+/* Suggested companies — a non-technical evaluator's fastest route to
+   somewhere interesting, so they read as destinations, not as links. */
+.chips { display: flex; flex-wrap: wrap; gap: var(--s2); margin-bottom: var(--s3); }
+.chip {
+  display: inline-flex; align-items: center; gap: var(--s2);
+  font-weight: 600; font-size: 0.9rem; text-decoration: none;
+  color: var(--ink); background: var(--surface);
+  border: 1px solid var(--rule); border-radius: 999px;
+  padding: var(--s2) var(--s4);
+}
+.chip::before {
+  content: ""; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--line-former); flex: none;
+}
+.chip:hover { border-color: var(--accent); color: var(--accent); }
+
+/* --- Narrow screens --------------------------------------------------------
+   The route turns vertical rather than wrapping mid-journey — which is what a
+   metro diagram does in a narrow column anyway, so the metaphor holds. */
+@media (max-width: 46rem) {
+  .chain {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0;
+    padding: var(--s3) 0;
+  }
+  .chain__node {
+    flex-direction: row;
+    text-align: left;
+    min-width: 0; max-width: none;
+    gap: var(--s3);
+  }
+  .chain__link {
+    flex: none;
+    width: var(--station);
+    height: var(--s6);
+    min-width: 0;
+    margin-left: 1px;
+    justify-content: center;
+  }
+  .chain__link::before { width: auto; height: 100%; }
+  .chain__link[data-strength="strong"]::before { width: 7px; height: 100%; }
+  .chain__link[data-strength="medium"]::before { width: 4px; height: 100%; }
+  .chain__link[data-strength="weak"]::before {
+    width: 2px; height: 100%;
+    background: repeating-linear-gradient(180deg,
+      var(--line-color) 0 6px, transparent 6px 10px);
+  }
+  .chain__context {
+    top: 50%; left: calc(100% + var(--s3)); right: auto;
+    transform: translateY(-50%);
+    text-align: left;
+  }
+
+  .site-header__bar { align-items: flex-start; }
+  /* `.site-header__nav` had no wrap of its own -- `.site-header__bar`'s
+     flex-wrap only ever applies to *its* direct children (brand, tagline,
+     nav), not to nav's own children one level down. At narrow widths the
+     signed-in nav (Network, Edit profile, the account email, a pill-shaped
+     Sign out button) had nowhere to go but shrink, and browsers shrink
+     inline text by wrapping *inside* each item before giving up -- "Edit
+     profile" broke into "Edit" / "profile" on two lines inside one link,
+     the same for "Sign out", and the pill button's own min-content floor
+     (border + padding it can't shrink below) still pushed past the header
+     edge. Letting the items wrap onto their own rows instead is what
+     actually fixes both: no more mid-word breaks, and nothing left with a
+     floor to overflow past. */
+  .site-header__nav { margin-left: 0; width: 100%; flex-wrap: wrap; }
+  .site-main { padding: var(--s5) var(--s4) var(--s7); }
+  .insiders > li { padding: var(--s4); }
+  input[type="text"], input[type="email"], input[type="password"], input[type="search"] {
+    max-width: 100%;
+  }
+}
+
+/* --- Landing page ----------------------------------------------------------
+   The hero shows a route instead of describing one, then the two entry points
+   sit side by side beneath it. Two columns rather than a stack because both
+   are equally valid ways in, and stacking them implies a precedence that
+   isn't there -- the company route is simply the one a stranger reaches for
+   first, so it leads. */
+/* Matches --measure exactly, not an independent 46rem that happened to be
+   close: the hero card and the lede paragraph inside it are both reading
+   content, and a hero block with its own separate width sat between the
+   lede's edge and the entry-points grid's -- a third ragged edge in the
+   first viewport. Tying it to the token the lede already uses (see the
+   global `p` rule) makes the two edges the same edge by construction,
+   not a coincidence that only holds at one viewport width. */
+.hero { max-width: var(--measure); }
+.hero h1 { margin-bottom: var(--s4); }
+.hero .lede { margin-bottom: var(--s5); }
+
+.hero__demo {
+  margin: 0;
+  padding: var(--s4) var(--s5) var(--s3);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+}
+/* The demo chain is decorative in the sense that it isn't queried, so it
+   shouldn't carry the vertical padding a real result needs. */
+.hero__demo .chain { padding: var(--s3) 0 var(--s5); }
+.hero__demo figcaption {
+  color: var(--muted); font-size: 0.85rem;
+  border-top: 1px solid var(--rule); padding-top: var(--s3);
+}
+
+.entry-points {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr));
+  gap: var(--s5);
+  margin-top: var(--s7);
+  /* Grid's default `stretch` makes every row track as tall as its tallest
+     cell -- the company card carries chips on top of its search box, the
+     person card carries only the search box, so `stretch` left the shorter
+     card with a third of its height as dead space. `start` lets each card
+     size to its own content instead, which is honest: the two entry points
+     are equally valid ways in, but they are not the same *shape* of task,
+     and forcing them to the same height was implying an equivalence the
+     content didn't have. */
+  align-items: start;
+}
+/* The grid already spaces the columns; the global section rule would add a
+   second, larger gap between them once they wrap. */
+.entry-points section + section { margin-top: 0; }
+.entry-points > section {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  padding: var(--s5);
+}
+.entry-points h2 { font-size: 1.2rem; }
+.entry-points p { font-size: 0.9rem; color: var(--muted); }
+
+/* The footer inherits `p { max-width: var(--measure) }`, which fights its own
+   centring -- the paragraph ends up a narrow left-ish column inside a centred
+   block. It's one line of chrome; let it use the width it has. */
+.site-footer p { max-width: none; margin: 0; }
+
+/* --- Person profile ----------------------------------------------------
+   Employment, projects and mutual connections were plain browser-default
+   <ul>/<li> lists -- the one screen on the site that hadn't been drawn,
+   next to route diagrams and card grids everywhere else. */
+.profile-list { list-style: none; margin: 0; padding: 0; }
+.profile-list > li {
+  padding: var(--s3) 0;
+  border-bottom: 1px solid var(--rule);
+}
+.profile-list > li:last-child { border-bottom: none; }
+.profile-list a { color: var(--ink); text-decoration: none; font-weight: 600; }
+.profile-list a:hover { color: var(--accent); text-decoration: underline; }
+
+/* Skills as tags, not a bullet column -- a set of short, same-shape items
+   reads faster as a wrapped row than as one-per-line. Deliberately not
+   .chip: chips are clickable destinations (suggested companies); a skill
+   is a fact about this person, not a link anywhere. */
+.tags { display: flex; flex-wrap: wrap; gap: var(--s2); list-style: none; margin: 0; padding: 0; }
+.tag {
+  font-size: 0.85rem; color: var(--muted); background: var(--surface);
+  border: 1px solid var(--rule); border-radius: 999px;
+  padding: 0.2rem var(--s3);
+}
+
+/* A one-off confirmation banner, e.g. "Signed in as X. Routes now start
+   from your network." -- reuses .insight's left-accent treatment (see the
+   company page) rather than inventing a second "here's something
+   important" style for what is the same kind of statement. */
+.insight {
+  font-size: 1.05rem;
+  padding: var(--s4) var(--s5);
+  background: var(--surface);
+  border-left: 3px solid var(--accent);
+  border-radius: 4px;
+  margin-bottom: var(--s5);
+}
+.insight strong { color: var(--ink); }
+
+/* The intro-message disclosure under a route -- the action a route used
+   to end without. A plain <details>/<summary> needs no JavaScript to
+   open/close; only the copy button (static/js/copy-intro.js) does. */
+.intro { margin-top: var(--s3); }
+.intro summary {
+  cursor: pointer; font-weight: 600; font-size: 0.9rem; color: var(--accent);
+}
+.intro summary:hover { text-decoration: underline; }
+.intro__body { display: flex; flex-direction: column; gap: var(--s2); margin-top: var(--s3); }
+.intro__message {
+  width: 100%; min-height: 8rem; resize: vertical;
+  font: inherit; font-size: 0.85rem; color: var(--ink);
+  background: var(--surface); border: 1px solid var(--rule);
+  border-radius: var(--radius); padding: var(--s3);
+}
+/* The message length genuinely varies -- a one-hop route's note is a couple
+   of lines, a three-hop one with long names is closer to ten, and the same
+   text wraps to far more lines in a phone-width column. Any fixed height is
+   therefore wrong for someone: too short and it cuts off mid-sentence, too
+   tall and short notes sit in a mostly empty box.
+   `field-sizing: content` sizes the field to what it holds, which is exactly
+   the rule we want. It is Chromium-only for now, so the fixed `min-height`
+   above stays as the floor every other browser falls back to -- this is
+   progressive enhancement, not a dependency. `max-height` keeps a long
+   message from pushing the Copy button off-screen. */
+.intro__message { field-sizing: content; max-height: 60vh; }
+
+/* Sits between the draft and the copy button because that is the order the
+   decision happens in: read it, change it, then take it. */
+.intro__hint { font-size: 0.8rem; color: var(--muted); margin: 0; }
+.intro__copy {
+  align-self: flex-start; font: inherit; font-size: 0.85rem;
+  color: var(--accent); background: var(--surface);
+  border: 1px solid var(--rule); border-radius: 999px;
+  padding: 0.3rem var(--s4); cursor: pointer;
+}
+.intro__copy:hover { border-color: var(--accent); }
+/* The one moment this button *does* something visible without a page
+   reload -- "Copied" has to look different from the resting state, or a
+   click that appears to do nothing reads as broken. */
+.intro__copy:disabled { color: var(--conf-strong); border-color: var(--conf-strong); cursor: default; }
+
+/* --- Company page: grouped insiders ----------------------------------------
+   Every route to a company insider starts with the same first hop -- the
+   person you'd actually message -- so pages._group_insiders_by_first_hop
+   collapses that shared prefix into one heading and one line in the trunk
+   box below, and each row shrinks to what actually differs between people:
+   name, title, hop count, score. Full per-person chain and the intro draft
+   move into the row's own disclosure, open on demand rather than drawn
+   eleven times. */
+.reach-summary { color: var(--muted); font-size: 0.95rem; margin: var(--s3) 0 var(--s5); }
+
+.trunk-box {
+  background: var(--surface); border: 1px solid var(--rule);
+  border-radius: var(--radius); padding: var(--s4) var(--s5);
+  margin-bottom: var(--s6);
+}
+.trunk-box h2 { font-size: 0.95rem; margin: 0; }
+/* Decorative in the same sense .hero__demo's chain is: several of these can
+   stack in one box, so each gets a tighter vertical rhythm than a standalone
+   route card needs. */
+.trunk-box .chain { padding: var(--s3) 0 var(--s2); }
+/* A trunk is always exactly one segment ("you -> the person you'd ask"),
+   where a route card's chain has three or four. `.chain__link`'s
+   `flex: 1 1` is right there and wrong here: with nothing to share the row
+   with, that single segment absorbs the full width and draws an 800px bar
+   of flat colour between two names. Segment length carries no meaning in
+   this design -- colour and thickness do -- so a stretched line is not
+   just ugly, it implies a distance that isn't real. Fixed length, no
+   growth, and the row packs to the left. */
+.trunk-box .chain__link { flex: 0 0 7rem; }
+.trunk-box .chain { justify-content: flex-start; }
+/* With the segment no longer stretching, a node's dot -- centred over a
+   name as long as "Ananya Kowalski" -- ends up half a label away from the
+   line that is supposed to reach it, leaving the track visibly detached
+   from its own stop. Aligning the dot to the start of the label puts it
+   back on the end of the line. Only safe here, where every chain is a
+   single segment; a multi-segment route needs its dots centred so the
+   track passes through them. */
+.trunk-box .chain__node { align-items: flex-start; text-align: left; }
+/* Below 46rem the chain stacks vertically, so that 7rem stops being a
+   segment's length and becomes its height -- two trunks' worth of empty
+   track pushing the actual list off the first screen. Half as long reads
+   the same and costs half the scroll. */
+@media (max-width: 46rem) {
+  .trunk-box .chain__link { flex: 0 0 3.5rem; }
+}
+.trunk-box .legend { margin: var(--s2) 0 0; border: none; padding: 0; background: none; }
+
+.insider-group { margin-bottom: var(--s6); }
+.insider-group__header {
+  display: flex; align-items: baseline; gap: var(--s3); flex-wrap: wrap;
+  font-size: 1.05rem; margin: 0 0 var(--s3);
+}
+/* Same tabular-figure family as .confidence/.legend, not prose -- a count is
+   a quantity, and it sits right after the heading it qualifies. */
+.insider-group__count {
+  font-family: var(--font-mono); font-size: 0.78rem; font-weight: 400;
+  color: var(--muted);
+}
+
+/* One bordered card per group holding all its rows, rather than one card per
+   row -- the row border between people inside a group is enough separation;
+   repeating a full card border and margin per person is exactly the "same
+   weight for what's identical and what differs" problem this redesign
+   exists to fix. */
+.insider-rows {
+  list-style: none; margin: 0; padding: 0;
+  border: 1px solid var(--rule); border-radius: var(--radius);
+  background: var(--surface); overflow: hidden;
+}
+.insider-rows > li + li { border-top: 1px solid var(--rule); }
+
+/* The row *is* the disclosure -- opening it reveals the chain and the intro
+   draft together, so there is exactly one thing to click per person, not a
+   toggle nested inside a toggle. */
+.insider-row { list-style: none; }
+.insider-row::-webkit-details-marker,
+.insider-row summary::-webkit-details-marker { display: none; }
+.insider-row__summary {
+  display: flex; align-items: center; gap: var(--s4); flex-wrap: wrap;
+  /* ~44px collapsed: this is the row that used to run ~150px per person --
+     what's identical across a group (the chain) is gone from here entirely,
+     so what's left is exactly what differs: name, title, hops, score. */
+  padding: var(--s3) var(--s4);
+  list-style: none;
+  cursor: pointer;
+}
+.insider-row__summary:hover { background: var(--paper); }
+.insider-row__name { font-weight: 600; flex: 1 1 11rem; min-width: 8rem; }
+.insider-row__name a { color: var(--ink); text-decoration: none; }
+.insider-row__name a:hover { color: var(--accent); text-decoration: underline; }
+.insider-row__title { color: var(--muted); font-size: 0.9rem; flex: 1 1 8rem; }
+.insider-row__hops {
+  color: var(--muted); font-size: 0.8rem; font-family: var(--font-mono);
+  flex: none; white-space: nowrap;
+}
+.insider-row__action {
+  color: var(--accent); font-size: 0.85rem; font-weight: 600;
+  flex: none; margin-left: auto; white-space: nowrap;
+}
+.insider-row__detail { padding: 0 var(--s4) var(--s4); }
+/* The chain inside an open row needs less top air than a standalone one --
+   the summary line right above it already establishes who this is. */
+.insider-row__detail .chain { padding-top: 0; }
+/* Lives here, not in the summary -- see the template comment: a real link
+   nested inside <summary> gives one click two competing behaviours. */
+.insider-row__profile-link {
+  margin: 0 0 var(--s3); font-size: 0.85rem;
+}
+.insider-row__profile-link a { color: var(--accent); text-decoration: none; }
+.insider-row__profile-link a:hover { text-decoration: underline; }
+
+@media (max-width: 46rem) {
+  /* Score and the "Draft intro" hint move to their own line under
+     name/title/hops rather than wrapping mid-row -- the same fix
+     .site-header__nav needed above, for the same reason: flex-wrap only
+     stops items breaking *inside* themselves, it doesn't decide where the
+     break falls, and letting it fall wherever content ran out cut "Draft
+     intro" in half at 390px. */
+  .insider-row__summary { row-gap: var(--s2); }
+  .insider-row__name, .insider-row__title { flex-basis: 100%; }
+}
+
+/* --- Person page: routes to one target -------------------------------------
+   Same density fix as the company page's insider rows, without the grouping
+   half: a person page shows routes to *one* target, so grouping by first hop
+   would mostly collapse to one group of one -- a header restating what the
+   single row underneath it already says. Each route still shrinks from an
+   always-open card to a row that opens on demand for its chain and draft. */
+.route-rows {
+  list-style: none; margin: 0; padding: 0;
+  border: 1px solid var(--rule); border-radius: var(--radius);
+  background: var(--surface); overflow: hidden;
+}
+.route-rows > li + li { border-top: 1px solid var(--rule); }
+
+.route-row { list-style: none; }
+.route-row::-webkit-details-marker,
+.route-row summary::-webkit-details-marker { display: none; }
+.route-row__summary {
+  display: flex; align-items: center; gap: var(--s4); flex-wrap: wrap;
+  padding: var(--s3) var(--s4);
+  list-style: none;
+  cursor: pointer;
+}
+.route-row__summary:hover { background: var(--paper); }
+.route-row__meta { color: var(--muted); font-size: 0.9rem; flex: 1 1 16rem; }
+.route-row__action {
+  color: var(--accent); font-size: 0.85rem; font-weight: 600;
+  flex: none; margin-left: auto; white-space: nowrap;
+}
+.route-row__detail { padding: 0 var(--s4) var(--s4); }
+.route-row__detail .chain { padding-top: 0; }
+
+@media (max-width: 46rem) {
+  .route-row__summary { row-gap: var(--s2); }
+  .route-row__meta { flex-basis: 100%; }
+}

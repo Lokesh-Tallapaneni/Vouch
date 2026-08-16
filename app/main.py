@@ -11,20 +11,42 @@ Route surface:
 
     /health, /ready      unversioned operational probes (app.api.health)
     /api/v1/...          versioned JSON API           (app.api.v1)
-    /                    server-rendered pages        (app.web, to follow)
+    /                    server-rendered pages        (app.web)
 """
 
 from __future__ import annotations
 
-from veloce import Veloce
+from pathlib import Path
+
+from veloce import (
+    CSPMiddleware,
+    CSRFMiddleware,
+    LoggingMiddleware,
+    ProxyFix,
+    RateLimitMiddleware,
+    RequestIDMiddleware,
+    SecurityHeadersMiddleware,
+    SlidingWindow,
+    Veloce,
+)
 
 from app.api import health
+from app.api.docs import register_docs_routes
+from app.api.errors import register_exception_handlers
 from app.api.v1 import router as v1
 from app.core.lifespan import lifespan
+from app.web import router as web
 
 APP_TITLE = "Vouch"
 APP_VERSION = "0.1.0"
 APP_DESCRIPTION = "A referral-path finder over a professional network, backed by CognoDB."
+
+#: Only what the static mount below needs. The Jinja environment itself
+#: lives in app.web.templating (not here) specifically to avoid the circular
+#: import that would otherwise exist: app.web.pages will need to import its
+#: router into create_app() below, and app.main importing `templates` back
+#: out of app.web would close that loop.
+BASE_DIR = Path(__file__).resolve().parent
 
 
 def create_app() -> Veloce:
@@ -34,10 +56,144 @@ def create_app() -> Veloce:
         version=APP_VERSION,
         description=APP_DESCRIPTION,
         lifespan=lifespan,
+        # Veloce's own /docs and /redoc pull Swagger UI / ReDoc from cdnjs
+        # and unpkg and bootstrap with an inline <script> -- all three
+        # blocked outright by this app's CSP (script-src 'self', no
+        # unsafe-inline), which rendered /docs as a 200-but-blank page: the
+        # HTML shipped, every asset it needed didn't. `docs_url=None,
+        # redoc_url=None` disables *only* those two routes -- `openapi_url`
+        # stays at its default and is registered independently regardless
+        # (confirmed by reading veloce/app/openapi.py's `_setup_openapi`,
+        # not assumed) -- and `register_docs_routes` below replaces them
+        # with same-origin pages backed by vendored assets. See
+        # app/api/docs.py for the full story and why this is the same move
+        # already made for htmx and the webfonts, not a policy exception.
+        docs_url=None,
+        redoc_url=None,
     )
 
     app.include_router(health.router)
     app.include_router(v1.router)
+    app.include_router(web.router)
+    register_exception_handlers(app)
+    register_docs_routes(app)
+
+    # `app.mount("/static", StaticFiles(...))` -- what an earlier draft of
+    # this task called for -- works, but `mount_static` is veloce's own
+    # preferred spelling for exactly this (its `Veloce.mount` docstring says
+    # so directly) and does one thing that hand-built call doesn't: it stats
+    # the directory at wiring time and raises immediately if it's missing,
+    # rather than letting every asset request 404 silently until someone
+    # opens the page. `Veloce.mount`/`StaticFiles.__init__` also don't accept
+    # a `name=` kwarg at all -- checked with `inspect.signature`, not
+    # assumed.
+    app.mount_static(prefix="/static", directory=str(BASE_DIR / "static"))
+
+    # First middleware registered, ahead of even RequestIDMiddleware: every
+    # downstream reader of request identity -- most importantly
+    # RateLimitMiddleware's per-client bucket key, but also the access log
+    # and request.scheme/url -- has to see the corrected values, not the
+    # raw ones, or it runs against Render's edge instead of the caller.
+    #
+    # Render terminates TLS and forwards over plain HTTP to this container,
+    # adding exactly one hop, so `x_for=1`/`x_proto=1` (both veloce's own
+    # defaults, spelled out here rather than left implicit) are correct for
+    # this deployment: RateLimitMiddleware._bucket_key falls back through
+    # request.client_host -> X-Forwarded-For's right-most hop -> a
+    # User-Agent hash -> a fresh id per request (see its own docstring).
+    # `Request.client_host` itself prefers `request._state["proxy_fix_client"]`
+    # over the raw TCP peer when set (see veloce/http/request.py) -- that state
+    # key is exactly what ProxyFix.process_request writes below, which is
+    # what makes this the fix rather than a parallel, unread mechanism.
+    # Without it, every caller's `client_host` resolves to Render's own edge
+    # address (whichever value the ASGI scope happens to carry for a
+    # proxied connection), collapsing every visitor into the *same*
+    # rate-limit bucket -- turning the login throttle into a shared quota
+    # that unrelated traffic can exhaust, locking out every other caller
+    # including a legitimate one.
+    #
+    # `x_for=2` or higher would trust an *additional* hop beyond Render's
+    # own -- meaning the second-from-right entry in a client-forged
+    # X-Forwarded-For header, not a value any real proxy added. That lets a
+    # caller pick their own bucket key by hand, which defeats the limiter
+    # more thoroughly than trusting nothing at all. `x_host`/`x_port`/
+    # `x_prefix` stay at 0 (disabled): Render forwards the original Host
+    # header transparently for this single-service deployment, so there is
+    # nothing here that needs X-Forwarded-Host/-Port/-Prefix trusted, and
+    # enabling them without a use for them is trust surface bought for
+    # nothing -- the same reasoning that kept the CSP free of an unused CDN
+    # host.
+    app.add_middleware(ProxyFix, x_for=1, x_proto=1)
+
+    # RequestIDMiddleware next, LoggingMiddleware after it -- ProxyFix above
+    # runs first overall, but between these two the order still matters the
+    # same way it always has: veloce's Middleware pipeline runs
+    # process_request in registration order (and process_response in
+    # reverse), so registering the id-minting middleware ahead of the one
+    # that logs is what makes request.state.request_id exist before
+    # anything downstream -- the route handler, app.api.errors's reference
+    # field -- runs. Confirmed against veloce's own source, not assumed:
+    # `_pipeline.py`'s `build_request_middleware` fuses `process_request`
+    # bound methods in forward (registration) order, and `app/dispatch.py`'s
+    # `_run_request_phase` walks that fused chain in the order given -- no
+    # reversal happens until the response phase (`build_response_middleware`
+    # reverses it there instead). Note this ordering does NOT change what
+    # veloce's own LoggingMiddleware logs: its access-log line (method, path,
+    # status, duration) never reads request_id at all, in either order -- the
+    # request id only reaches a log line because app.api.errors reads
+    # request.state.request_id itself.
+    app.add_middleware(RequestIDMiddleware)
+    app.add_middleware(LoggingMiddleware)
+
+    # `hsts_max_age` -- confirmed present on `SecurityHeadersMiddleware`'s
+    # real signature, not assumed. Render terminates TLS and may inject its
+    # own Strict-Transport-Security, but depending on the platform for a
+    # security header is a weaker answer than setting it here; 31536000s
+    # (one year) matches the value veloce's own `use_secure_defaults()`
+    # helper uses. Inert (browsers only honour HSTS over HTTPS), so it costs
+    # nothing in local HTTP development.
+    app.add_middleware(SecurityHeadersMiddleware, hsts_max_age=31536000)
+    # htmx is vendored locally at app/static/js/htmx.min.js rather than pulled
+    # from a CDN, so no external host needs to appear in the policy -- a CDN
+    # entry here would be a trust dependency bought for nothing when the
+    # alternative is one file in static/. CSPMiddleware takes a directive
+    # mapping via `policy=`, not the `default_src=`/`script_src=` kwargs an
+    # earlier draft of this task assumed -- checked with
+    # `inspect.signature(CSPMiddleware.__init__)` rather than guessed.
+    app.add_middleware(
+        CSPMiddleware,
+        policy={
+            "default-src": "'self'",
+            "script-src": "'self'",
+            "style-src": "'self'",
+            "img-src": ["'self'", "data:"],
+        },
+    )
+    # Protects the write routes. An earlier design doc argued no CSRF was
+    # needed because every route was read-only; profile editing
+    # (PATCH /api/v1/people/me) removed that premise. Defaults match how the
+    # session cookie itself is already set in app.api.v1.auth (Secure,
+    # SameSite=Lax) -- httponly stays False here specifically, since the
+    # double-submit pattern requires client-side script to read the cookie
+    # and echo it back in the X-CSRF-Token header.
+    app.add_middleware(CSRFMiddleware)
+    # A generous site-wide floor (an abuse/DoS backstop, not a throttle
+    # anyone should hit in normal use) plus a tight override on sign-in
+    # specifically -- the one endpoint where unlimited attempts are worth
+    # something to an attacker (credential stuffing, brute force). An
+    # `overrides` key is the *full* route template including the blueprint
+    # prefix (RateLimitMiddleware's own docstring), hence
+    # `v1.API_V1_PREFIX` rather than the bare "/auth/login" the route
+    # decorator itself is written with. `RateLimitMiddleware(limit=20, ...)`
+    # -- what an earlier draft of this task called for -- isn't this
+    # constructor's signature either: it takes `max_requests`, and neither
+    # form scopes to one route on its own, which is why this uses `strategy=`
+    # / `overrides=` instead of the bare `max_requests=` shortcut.
+    app.add_middleware(
+        RateLimitMiddleware,
+        strategy=SlidingWindow(limit=300, window=60),
+        overrides={f"{v1.API_V1_PREFIX}/auth/login": SlidingWindow(limit=20, window=60)},
+    )
 
     return app
 

@@ -25,3 +25,8 @@ htmlcov/
 Thumbs.db
 .vscode/
 .idea/
+
+# Browser-automation artifacts (console logs and page snapshots written by the
+# Playwright MCP server during end-to-end runs). Transient debugging output,
+# regenerated on every run.
+.playwright-mcp/

@@ -1,0 +1,64 @@
+{# Site chrome, included by every page via base.html.
+
+   Reads two optional context variables so this partial degrades cleanly on
+   any page that hasn't wired the account layer into its view yet:
+     - `current_account`: an `Account | None` (app.models.account), e.g. from
+       `app.api.dependencies.CurrentAccount`. Jinja treats an undefined name
+       as falsy, so a page that never passes it just renders signed-out --
+       nothing breaks.
+     - `current_account_name`: the signed-in person's display name (from
+       `app.api.dependencies.CurrentAccountName`), shown instead of the
+       account's email -- an email is a login credential, not something a
+       signed-in user wants to see about themselves in navigation.
+
+   Page-specific navigation links (Task 19): Network is always visible --
+   it needs no account, same as every other read page. Sign-in/sign-up show
+   only when signed out; the profile edit link only when signed in, since it
+   is the app's one write surface and always resolves to the caller's own id.
+
+   Signed-out visitors are told plainly whose network they're browsing: every
+   route on a public read page starts from the seeded demo protagonist
+   (settings.default_person_id), not from an anonymous "you" -- a reviewer
+   who doesn't know that can't make sense of a single chain on the site. The
+   wording leads with "Demo" rather than "Viewing as ... the demo account"
+   specifically because the latter sat directly next to the Sign in / Sign
+   up links and read as contradicting them -- "you're signed in as someone,
+   AND here's a sign-in link" looked like two features disagreeing about
+   the app's state rather than one demo mode plus an offer to leave it.
+
+   Sign-out posts to `/sign-out` (app.web.pages, not the JSON API's
+   `/api/v1/auth/logout`) so it can answer with an `HX-Redirect` response
+   header -- htmx honours that natively, no client-side script involved.
+   This used to be `hx-post="/api/v1/auth/logout"` plus
+   `hx-on::after-request="window.location.assign('/')"`: htmx compiles
+   `hx-on` handlers through `new Function()`, which this app's CSP
+   (`script-src 'self'`, no `unsafe-eval`) blocks outright. The POST
+   succeeded and the cookie was cleared server-side, but the eval threw
+   silently -- the redirect never ran, and a signed-out user kept seeing
+   their own email in the header until a manual reload. `HX-Redirect` fixes
+   that without loosening the CSP for one button; grepping the templates
+   for `hx-on` after finding this turned up no other instance. The request
+   still needs the CSRF header CSRFMiddleware demands of every POST --
+   see static/js/csrf.js, loaded once in base.html, which attaches it to
+   every htmx request site-wide rather than this button reaching for it
+   one-off. #}
+<header class="site-header">
+  <div class="site-header__bar">
+    <a class="site-header__brand" href="/">Vouch</a>
+    <p class="site-header__tagline">Who can introduce you, and how well do they know the way in?</p>
+    <nav class="site-header__nav" aria-label="Primary">
+      <a href="/network">Network</a>
+      {% if current_account %}
+        <a href="/profile">Edit profile</a>
+        <span class="site-header__account">{{ current_account_name or current_account.email }}</span>
+        <button type="button" class="site-header__signout" hx-post="/sign-out">
+          Sign out
+        </button>
+      {% else %}
+        <a href="/sign-in">Sign in</a>
+        <a href="/sign-up">Sign up</a>
+        <span class="site-header__account">Demo — you're exploring Lokesh Tallapaneni's network.</span>
+      {% endif %}
+    </nav>
+  </div>
+</header>

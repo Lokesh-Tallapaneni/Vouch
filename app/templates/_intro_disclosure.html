@@ -1,0 +1,21 @@
+{# The intro-request message under a route -- the review's sharpest note was
+   that a route ends at a picture with no action; this is the action. The
+   actual draft (textarea, hint, Copy button) lives in
+   _intro_message_body.html; this file is just the "Ask X for an intro"
+   toggle around it -- company.html's grouped rows include that body
+   directly instead, since their group header already names the asker.
+
+   Expects `route` (IntroductionRoute) and `target_name` in context;
+   `target_title`/`company` are optional and degrade gracefully when unset
+   (Jinja's `|default('')` on an undefined name, not a KeyError). Renders
+   nothing for a route with no hops -- there's no one to ask.
+
+   The summary names the person, not the feature ("Ask Ananya for an
+   intro", not "Show message") -- a disclosure's label should say what
+   happens when you open it. #}
+{% if route.hop_details %}
+  <details class="intro">
+    <summary>Ask {{ route.hop_details[0].to_name }} for an intro</summary>
+    {% include "_intro_message_body.html" %}
+  </details>
+{% endif %}

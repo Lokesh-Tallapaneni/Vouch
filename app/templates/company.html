@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% from "_states.html" import empty %}
+{% from "_confidence.html" import confidence_badge %}
+{% block title %}{{ company }} — Vouch{% endblock %}
+{% block content %}
+  <p class="eyebrow">Reach into</p>
+  <h1>{{ company }}</h1>
+
+  {% if insiders %}
+    {# Replaces the old descriptive lede ("ranked by how strong a route...")
+       once there's something real to look at -- a fact ("11 reachable ·
+       best route 0.44") earns its place above the fold in a way boilerplate
+       explanation doesn't. `insiders[0]` is the best route regardless of
+       grouping/sorting below: COMPANY_INSIDERS_CYPHER orders by confidence
+       descending and this list is never re-sorted, only grouped. #}
+    <p class="reach-summary">{{ insiders|length }} reachable
+       · best route {{ '%.2f'|format(insiders[0].route.confidence) }}</p>
+
+    {% if insight %}
+      {# What grouping below doesn't cover: a network that barely reaches
+         this company at all -- see pages._company_insight. #}
+      <p class="insight"><strong>{{ insight.headline }}</strong> {{ insight.detail }}</p>
+    {% endif %}
+
+    {# Structure once, then list the inventory: nine near-identical
+       "You -> Ananya Kowalski -> someone" diagrams used to repeat the same
+       first hop nine times, in the same visual weight as the one thing that
+       actually differed between them (who). This box draws each *distinct*
+       first hop -- the person you'd message -- exactly once; the full,
+       person-specific chain moves into each row's own disclosure below. #}
+    <section class="trunk-box" aria-labelledby="trunk-heading">
+      <h2 id="trunk-heading">How you get in</h2>
+      {% for group in groups %}
+        {% set route = group.trunk %}
+        {% include "_chain.html" %}
+      {% endfor %}
+      <div class="legend" role="note" aria-label="How to read a route">
+        <span class="legend__item">
+          <span class="legend__swatch" data-context="team"></span> same team
+        </span>
+        <span class="legend__item">
+          <span class="legend__swatch" data-context="project"></span> shared project
+        </span>
+        <span class="legend__item">
+          <span class="legend__swatch" data-context="former-colleague"></span> former colleague
+        </span>
+        <span class="legend__item">thicker line = stronger tie</span>
+      </div>
+    </section>
+
+    {% for group in groups %}
+      <section class="insider-group" aria-labelledby="group-heading-{{ loop.index0 }}">
+        <h2 class="insider-group__header" id="group-heading-{{ loop.index0 }}">
+          Ask {{ group.asker_name }}
+          <span class="insider-group__count">
+            {{ group.insiders|length }} {{ 'person' if group.insiders|length == 1 else 'people' }}
+          </span>
+        </h2>
+        <ol class="insider-rows">
+          {% for insider in group.insiders %}
+            <li>
+              {# The row itself is the disclosure: opening it reveals the
+                 full chain and the intro draft together, rather than one
+                 more toggle to find inside another. #}
+              <details class="insider-row">
+                {# Plain text, not a link -- <summary> is itself a control
+                   (toggling the row), and a real <a> nested inside it gives
+                   one click to two competing behaviours (navigate vs.
+                   toggle) and confuses keyboard/screen-reader users about
+                   which one fires. The link to their profile lives below,
+                   inside the opened detail, where it isn't nested inside
+                   another interactive element. #}
+                <summary class="insider-row__summary">
+                  <span class="insider-row__name">{{ insider.name }}</span>
+                  <span class="insider-row__title">{{ insider.title }}</span>
+                  <span class="insider-row__hops">{{ insider.route.hops }}
+                     hop{{ '' if insider.route.hops == 1 else 's' }}</span>
+                  {{ confidence_badge(insider.route.confidence) }}
+                  <span class="insider-row__action">Draft intro</span>
+                </summary>
+                <div class="insider-row__detail">
+                  {% set route = insider.route %}
+                  {% include "_chain.html" %}
+                  <p class="insider-row__profile-link">
+                    <a href="/people/{{ insider.person_id }}">View {{ insider.name }}'s full profile</a>
+                  </p>
+                  {% set target_name = insider.name %}
+                  {% set target_title = insider.title %}
+                  {% include "_intro_message_body.html" %}
+                </div>
+              </details>
+            </li>
+          {% endfor %}
+        </ol>
+      </section>
+    {% endfor %}
+  {% else %}
+    {{ empty(
+      "No route to anyone at " ~ company ~ " within " ~ max_hops ~ " hops.",
+      "Try another company", "/"
+    ) }}
+  {% endif %}
+{% endblock %}

@@ -1,0 +1,51 @@
+{% from "_states.html" import empty %}
+{% from "_confidence.html" import confidence_badge %}
+{# A person page shows routes to *one* target, so grouping by first hop (the
+   company page's redesign -- see pages._group_insiders_by_first_hop) would
+   mostly collapse to one group of one here: a header stating a fact the row
+   right underneath it already states. That part of the redesign doesn't pay
+   for itself on this page, so it isn't applied. The density half does: each
+   route used to render as a card that always showed its full chain and its
+   own "Ask X for an intro" toggle; now it's one compact line that opens to
+   reveal both, on demand. #}
+{% if routes %}
+  <ol class="route-rows">
+    {% for route in routes %}
+      <li>
+        <details class="route-row">
+          <summary class="route-row__summary">
+            <span class="route-row__meta">
+              {{ route.hops }} hop{{ '' if route.hops == 1 else 's' }}
+              via {{ route.chain[1:-1] | join(', ') if route.hops > 1 else 'a direct connection' }}
+            </span>
+            {{ confidence_badge(route.confidence) }}
+            <span class="route-row__action">Draft intro</span>
+          </summary>
+          <div class="route-row__detail">
+            {% include "_chain.html" %}
+            {# The row's own meta line above already names whoever the draft
+               reaches -- the intermediary on a multi-hop route, or nobody
+               else to name on a direct one -- so this renders the draft
+               directly (_intro_message_body.html) rather than
+               _intro_disclosure.html's own "Ask X for an intro" toggle,
+               which would restate that name a second time.
+
+               target_name/target_title come from `profile` -- present in
+               scope whenever this partial is included from person.html
+               (default context passthrough). `profile is defined` guards
+               the one caller that doesn't set it (fragments.routes_fragment):
+               Jinja's default Undefined raises on attribute access
+               (`profile.name` would error outright), so the guard has to
+               happen before that access, not via a |default filter chained
+               after it. #}
+            {% set target_name = profile.name if profile is defined else '' %}
+            {% set target_title = profile.title if profile is defined else '' %}
+            {% include "_intro_message_body.html" %}
+          </div>
+        </details>
+      </li>
+    {% endfor %}
+  </ol>
+{% else %}
+  {{ empty("No route within " ~ max_hops ~ " hops. Try a different person, or widen the search.") }}
+{% endif %}

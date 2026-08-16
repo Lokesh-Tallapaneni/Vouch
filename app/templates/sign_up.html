@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{# Imported under an alias -- see sign_in.html for why: the context already
+   carries an `error` variable, and importing the macro under its own name
+   would shadow it. #}
+{% from "_states.html" import error as error_state %}
+{% block title %}Claim your profile — Vouch{% endblock %}
+{% block content %}
+  <h1>Claim your profile</h1>
+  <p>Sign-up claims an existing person in the seeded network rather than
+     creating a new one, so your account starts with real connections to
+     find routes through.</p>
+  {% if error %}{{ error_state(error) }}{% endif %}
+  <form method="post" action="/sign-up">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+    {# The name search below is the primary (and only) path to a person_id
+       -- a raw database key like "p0042" is not something a non-technical
+       person can supply, and the assignment brief requires this app to be
+       usable by exactly that person. See _claim_block.html. #}
+    {% include "_claim_block.html" %}
+
+    <p>
+      <label for="sign-up-email">Email</label><br>
+      <input type="email" id="sign-up-email" name="email" required autocomplete="email"
+             value="{{ email or '' }}">
+    </p>
+    <p>
+      <label for="sign-up-password">Password</label><br>
+      <input type="password" id="sign-up-password" name="password" required
+             minlength="10" autocomplete="new-password">
+      <br><small class="row-head__meta">
+        {# Stated up front, not left to the browser's own validation bubble
+           after a failed submit -- a rule someone only learns about by
+           failing it once is a worse rule than one stated before they type
+           anything. minlength stays too, as a real floor for anyone who
+           doesn't read it. #}
+        At least 10 characters — length beats character classes.
+      </small>
+    </p>
+    <button type="submit">Sign up</button>
+  </form>
+  <p>Already have an account? <a href="/sign-in">Sign in</a>.</p>
+{% endblock %}

@@ -1,0 +1,35 @@
+{# The person_id claim widget for sign-up: a name search that resolves to a
+   hidden field, not a raw database id a non-technical person can't supply.
+
+   Two states, one partial, so the initial full-page render (sign_up.html,
+   both the plain GET and an error redisplay that already has a selection)
+   and the htmx selection swap (fragments.claim_select_fragment) always
+   agree on markup instead of drifting apart as two hand-kept copies.
+
+   Expects `selected`: a PersonProfile (app.models.person) or None. #}
+<div id="claim-block">
+  {% if selected %}
+    <input type="hidden" name="person_id" value="{{ selected.id }}">
+    <p>Claiming <strong>{{ selected.name }}</strong>{% if selected.title %} — {{ selected.title }}{% endif %}.
+       <a href="/sign-up">Not you? Search again</a></p>
+  {% else %}
+    <div class="search-box" id="claim-search">
+      <label for="claim-search-input">Find yourself</label>
+      {# name="q" is load-bearing, not decoration: htmx serialises a
+         triggering element's own name/value pair into the request it
+         fires, and without one the search silently ran with no `q` at
+         all -- caught by driving this in a real browser, not by the unit
+         suite, which never renders markup or fires a real keyup. #}
+      <input type="search" name="q" id="claim-search-input" autocomplete="off"
+             placeholder="Start typing your name"
+             hx-get="/fragments/claim-search"
+             hx-trigger="keyup changed delay:250ms"
+             hx-target="#claim-results"
+             hx-indicator="#claim-search">
+      <div class="htmx-indicator" role="status" aria-live="polite">
+        <span class="state__spinner" aria-hidden="true"></span> Searching…
+      </div>
+      <div id="claim-results" role="region" aria-live="polite"></div>
+    </div>
+  {% endif %}
+</div>

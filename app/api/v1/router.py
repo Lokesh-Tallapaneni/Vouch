@@ -26,16 +26,21 @@ from __future__ import annotations
 
 from veloce import Router
 
+from app.api.v1 import auth, companies, introductions, network, people
+
 API_V1_PREFIX = "/api/v1"
 
 router = Router(prefix=API_V1_PREFIX)
 
-# Endpoint modules are included below as they land. Each owns one resource and
-# registers its own child router with its own tag:
-#
-#   from app.api.v1 import companies, introductions, network, people
-#
-#   router.include_router(people.router)          # /api/v1/people
-#   router.include_router(companies.router)       # /api/v1/companies
-#   router.include_router(introductions.router)   # /api/v1/introductions
-#   router.include_router(network.router)         # /api/v1/network
+# `Router(prefix=...)` only applies its prefix to routes registered directly
+# on that router via `@router.get(...)`/`@router.post(...)` -- it plays no
+# part in `include_router`, which only combines the *explicit* `prefix=`
+# argument with the child router's own (already-prefixed) tree. Since nothing
+# is ever registered directly on this router, `API_V1_PREFIX` has to be passed
+# explicitly at every `include_router` call below, or it silently never
+# applies and every v1 route 404s at its un-prefixed path.
+router.include_router(auth.router, prefix=API_V1_PREFIX)  # /api/v1/auth
+router.include_router(people.router, prefix=API_V1_PREFIX)  # /api/v1/people
+router.include_router(companies.router, prefix=API_V1_PREFIX)  # /api/v1/companies
+router.include_router(introductions.router, prefix=API_V1_PREFIX)  # /api/v1/introductions
+router.include_router(network.router, prefix=API_V1_PREFIX)  # /api/v1/network

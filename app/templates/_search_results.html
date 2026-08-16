@@ -1,0 +1,19 @@
+{% from "_states.html" import empty %}
+{% if results %}
+  <ul class="results" role="listbox">
+    {% for result in results %}
+      {# The detail line was previously rendered in `.confidence` -- the badge
+         style reserved for route scores. A job title is not a score, and
+         borrowing that style made a search result look like it carried a
+         confidence rating it does not have. #}
+      <li role="option"><a href="{{ result.href }}">
+        <span class="results__name">{{ result.label }}</span>
+        {% if result.detail %}<span class="results__detail">{{ result.detail }}</span>{% endif %}
+      </a></li>
+    {% endfor %}
+  </ul>
+{% elif term|length >= 2 %}
+  {{ empty('No matches for “' ~ term ~ '”.') }}
+{% else %}
+  {{ empty("Type at least two characters.") }}
+{% endif %}

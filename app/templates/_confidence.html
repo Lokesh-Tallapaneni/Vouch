@@ -1,0 +1,25 @@
+{# The route-confidence badge, in its own file so callers can import the macro
+   without executing _chain.html's top-level markup (which needs a `route` in
+   context and would raise on import).
+
+   Route confidence is the product of tie strengths along a whole chain, so it
+   lives on a different scale from any single hop. Bands are calibrated against
+   the measured spread across the eight seeded companies (0.20-0.88):
+   strong >= 0.60, medium >= 0.40, weak below. Do not reuse the per-hop
+   thresholds (0.70 / 0.45) here -- they measure a different quantity, and
+   reusing them would put nearly every route in one band.
+
+   The badge used to label itself "confidence" regardless of band, leaving a
+   bare number nobody could judge on sight -- 0.44 means nothing without a
+   reference point. Naming the band in the label ("Decent route", not
+   "confidence") is what turns the badge into a verdict instead of a
+   measurement someone has to interpret themselves. #}
+{% macro confidence_badge(value) -%}
+  {% set strength = 'strong' if value >= 0.6 else 'medium' if value >= 0.4 else 'weak' %}
+  {% set word = {'strong': 'Strong route', 'medium': 'Decent route', 'weak': 'Weak route'}[strength] %}
+  <span class="confidence" data-label="{{ word }}"
+        data-strength="{{ strength }}"
+        title="Confidence {{ '%.2f'|format(value) }} — tie strength multiplied along the whole route">
+    {{ '%.2f'|format(value) }}
+  </span>
+{%- endmacro %}

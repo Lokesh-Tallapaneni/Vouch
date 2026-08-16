@@ -1,0 +1,7 @@
+/* Minimal reset for /redoc -- kept as its own same-origin file rather than
+   an inline <style> tag, since style-src 'self' (no unsafe-inline) blocks
+   an inline one exactly like every other asset this directory vendors. */
+body {
+  margin: 0;
+  padding: 0;
+}
