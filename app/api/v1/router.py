@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from veloce import Router
 
-from app.api.v1 import auth
+from app.api.v1 import auth, people
 
 API_V1_PREFIX = "/api/v1"
 
@@ -40,13 +40,13 @@ router = Router(prefix=API_V1_PREFIX)
 # explicitly at every `include_router` call below, or it silently never
 # applies and every v1 route 404s at its un-prefixed path.
 router.include_router(auth.router, prefix=API_V1_PREFIX)  # /api/v1/auth
+router.include_router(people.router, prefix=API_V1_PREFIX)  # /api/v1/people
 
 # Remaining endpoint modules are included below as they land. Each owns one
 # resource and registers its own child router with its own tag:
 #
-#   from app.api.v1 import companies, introductions, network, people
+#   from app.api.v1 import companies, introductions, network
 #
-#   router.include_router(people.router, prefix=API_V1_PREFIX)          # /api/v1/people
 #   router.include_router(companies.router, prefix=API_V1_PREFIX)       # /api/v1/companies
 #   router.include_router(introductions.router, prefix=API_V1_PREFIX)   # /api/v1/introductions
 #   router.include_router(network.router, prefix=API_V1_PREFIX)         # /api/v1/network

@@ -21,6 +21,7 @@ from app.core.settings import Settings
 from app.db.client import GraphClient
 from app.models.account import Account
 from app.services.account_service import AccountService
+from app.services.person_service import PersonService
 
 
 def get_graph(request: Request) -> GraphClient:
@@ -107,3 +108,10 @@ async def get_viewer_id(account: CurrentAccount, settings: SettingsDep) -> str:
 
 
 ViewerId = Annotated[str, Depends(get_viewer_id)]
+
+
+def get_person_service(graph: GraphDep) -> PersonService:
+    return PersonService(graph)
+
+
+PersonServiceDep = Annotated[PersonService, Depends(get_person_service)]
