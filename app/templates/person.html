@@ -12,6 +12,12 @@
        for exactly the one page load it's meant for). #}
     <p class="insight"><strong>Signed in as {{ profile.name }}.</strong>
        Routes now start from your network.</p>
+  {% elif just_saved %}
+    {# A POST-then-redirect save lands on a page identical to the one before
+       it, so without this the only confirmation is noticing the changed
+       field yourself. See show_person's just_saved. #}
+    <p class="insight"><strong>Profile saved.</strong>
+       This is how others see you.</p>
   {% elif is_self and not current_account %}
     {# Explains whose profile this is before anything else on the page: a
        reviewer who lands here signed out, following the header's "Demo"
@@ -25,7 +31,13 @@
        routes starting from their network instead.</p>
   {% endif %}
 
-  <p>{{ profile.title }}{% if profile.seniority %} · {{ profile.seniority.replace('-', ' ').replace('_', ' ')|capitalize }}{% endif %}</p>
+  {# Seniority is a separate field from title, but for most people the title
+     already carries it -- "Senior Software Engineer · Senior" is what this
+     line used to render, which reads as a bug rather than as two facts.
+     Suppressed when the title already says it; still shown when it adds
+     something ("Designer · Staff"). #}
+  {% set seniority = (profile.seniority or '').replace('-', ' ').replace('_', ' ') %}
+  <p>{{ profile.title }}{% if seniority and seniority|lower not in profile.title|lower %} · {{ seniority|capitalize }}{% endif %}</p>
   {% if profile.headline %}<p>{{ profile.headline }}</p>{% endif %}
   {% if profile.team %}<p>Team: {{ profile.team }}</p>{% endif %}
 

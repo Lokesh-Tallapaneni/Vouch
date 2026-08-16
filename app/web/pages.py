@@ -316,6 +316,13 @@ async def show_person(
     just_signed_in = (
         is_self and account is not None and request.query_params.get("signed_in") == "1"
     )
+    # submit_profile_edit redirects here with ?saved=1. Same mechanism, and
+    # needed for the same reason the sign-in flag is: a POST-then-redirect
+    # save lands on a page that looks exactly like the one before it, so
+    # without this the only evidence the write succeeded is spotting the
+    # changed field yourself -- and an edit that changed nothing visible
+    # (or silently failed) is indistinguishable from one that worked.
+    just_saved = is_self and account is not None and request.query_params.get("saved") == "1"
     return templates.TemplateResponse(
         "person.html",
         {
@@ -328,6 +335,7 @@ async def show_person(
             "viewer_id": viewer_id,
             "is_self": is_self,
             "just_signed_in": just_signed_in,
+            "just_saved": just_saved,
         },
     )
 
@@ -639,4 +647,4 @@ async def submit_profile_edit(
             },
             status_code=422,
         )
-    return RedirectResponse(f"/people/{account.person_id}", status_code=303)
+    return RedirectResponse(f"/people/{account.person_id}?saved=1", status_code=303)

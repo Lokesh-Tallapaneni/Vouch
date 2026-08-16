@@ -731,3 +731,53 @@ def test_no_inline_script_was_introduced_by_the_intro_feature() -> None:
         attrs, body = match.groups()
         assert "src=" in attrs, f"inline script found: {match.group(0)[:120]}"
         assert body.strip() == ""
+
+
+def test_saving_a_profile_confirms_the_write() -> None:
+    # POST-then-redirect lands on a page identical to the one before it, so
+    # without an explicit confirmation the only evidence a save worked is
+    # spotting the changed field yourself -- and a no-op edit is then
+    # indistinguishable from a silent failure.
+    account_row = {
+        "id": "acc-1",
+        "email": "priya@example.com",
+        "person_id": "p0001",
+        "created_at": "2026-08-16T10:00:00Z",
+    }
+    graph = FakeGraph(
+        {
+            "MATCH (a:Account {id": [account_row],
+            "OPTIONAL MATCH": [PROFILE_ROW],
+            "RETURN p.name AS name": [{"name": "Priya Sharma"}],
+        }
+    )
+    with _client(graph) as client:
+        client.cookies.update(
+            {
+                SESSION_COOKIE_NAME: issue_session_token(
+                    SessionClaims(account_id="acc-1", person_id="p0001"),
+                    DUMMY_SETTINGS_ENV["JWT_SECRET"],
+                )
+            }
+        )
+        response = client.get("/people/p0001?saved=1")
+    assert "Profile saved." in response.text
+
+
+def test_a_seniority_the_title_already_states_is_not_repeated() -> None:
+    # "Senior Software Engineer · Senior" is what this used to render. Two
+    # true facts, but printed together they read as a rendering bug.
+    row = {**PROFILE_ROW, "title": "Senior Software Engineer", "seniority": "senior"}
+    with _client(FakeGraph({"OPTIONAL MATCH": [row]})) as client:
+        response = client.get("/people/p0001")
+    assert "Senior Software Engineer" in response.text
+    assert "· Senior" not in response.text
+
+
+def test_a_seniority_the_title_does_not_state_is_still_shown() -> None:
+    # The suppression must not swallow a seniority that genuinely adds
+    # something the title doesn't say.
+    row = {**PROFILE_ROW, "title": "Designer", "seniority": "staff"}
+    with _client(FakeGraph({"OPTIONAL MATCH": [row]})) as client:
+        response = client.get("/people/p0001")
+    assert "Staff" in response.text
