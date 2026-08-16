@@ -22,6 +22,7 @@ from app.db.client import GraphClient
 from app.models.account import Account
 from app.services.account_service import AccountService
 from app.services.person_service import PersonService
+from app.services.search_service import SearchService
 
 
 def get_graph(request: Request) -> GraphClient:
@@ -115,3 +116,10 @@ def get_person_service(graph: GraphDep) -> PersonService:
 
 
 PersonServiceDep = Annotated[PersonService, Depends(get_person_service)]
+
+
+def get_search_service(graph: GraphDep) -> SearchService:
+    return SearchService(graph)
+
+
+SearchServiceDep = Annotated[SearchService, Depends(get_search_service)]

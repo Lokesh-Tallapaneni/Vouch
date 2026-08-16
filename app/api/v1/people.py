@@ -10,12 +10,28 @@ from __future__ import annotations
 
 from veloce import Router
 
-from app.api.dependencies import PersonServiceDep, RequiredAccount, ViewerId
+from app.api.dependencies import PersonServiceDep, RequiredAccount, SearchServiceDep, ViewerId
 from app.models.person import ProfileUpdate
 from app.schemas.common import AUTH_RESPONSES, ERROR_RESPONSES
-from app.schemas.person import PersonProfileResponse, ProfileUpdateRequest
+from app.schemas.person import PersonProfileResponse, PersonSummaryResponse, ProfileUpdateRequest
 
 router = Router(prefix="/people", tags=["people"])
+
+
+@router.get(
+    "",
+    response_model=list[PersonSummaryResponse],
+    summary="Search people by name prefix",
+    response_description="Matching people, alphabetical. Empty if `q` is under two characters.",
+    responses=ERROR_RESPONSES,
+)
+async def list_people(
+    search: SearchServiceDep, q: str = "", limit: int = 8
+) -> list[PersonSummaryResponse]:
+    """Typeahead over people. A too-short `q` returns an empty list rather
+    than the whole dataset."""
+    people = await search.search_people(q, limit=limit)
+    return [PersonSummaryResponse.model_validate(p, from_attributes=True) for p in people]
 
 
 @router.get(
