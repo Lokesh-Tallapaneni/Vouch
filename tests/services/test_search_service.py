@@ -70,6 +70,25 @@ async def test_the_term_is_lowercased_and_passed_as_a_parameter() -> None:
     assert graph.calls[0].params["term"] == "pri"
 
 
+async def test_search_people_deduplicates_by_person_id() -> None:
+    # Regression: an inline relationship property on an OPTIONAL MATCH
+    # (`[:WORKED_AT {current: true}]`) is silently ignored on CognoDB, so
+    # SEARCH_PEOPLE_CYPHER used to return one row per employment rather than
+    # one per person -- fixed in the Cypher itself (a WHERE clause bound to
+    # the relationship variable instead), but FakeGraph cannot reproduce a
+    # server-side duplication, so this pins the service-layer contract
+    # directly: given two rows for the same person, only one comes back,
+    # regardless of what the query underneath does.
+    duplicate_rows = [
+        {**PERSON_ROW, "current_company": "Everline"},
+        {**PERSON_ROW, "current_company": "Halcyon Media"},
+    ]
+    graph = FakeGraph({_PEOPLE_FRAGMENT: duplicate_rows})
+    results = await SearchService(graph).search_people("pri")
+    assert len(results) == 1
+    assert results[0].id == "p0001"
+
+
 async def test_the_limit_is_clamped_to_a_sane_maximum() -> None:
     graph = FakeGraph({_PEOPLE_FRAGMENT: [PERSON_ROW]})
     await SearchService(graph).search_people("pri", limit=10_000)

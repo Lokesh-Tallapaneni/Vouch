@@ -151,6 +151,20 @@ async def test_search_finds_people_by_prefix(graph) -> None:
     assert all(person.name.lower().startswith("pr") for person in people)
 
 
+async def test_search_returns_no_duplicate_people(graph) -> None:
+    # Regression: an inline relationship property on an OPTIONAL MATCH
+    # (`[:WORKED_AT {current: true}]`) is silently ignored on this engine,
+    # so SEARCH_PEOPLE_CYPHER used to return one row per employment rather
+    # than one per person -- "priya m" surfaced p0198 (Priya Mehta) twice,
+    # once per employer. FakeGraph can't reproduce a server-side
+    # duplication, which is exactly why this needs the live instance: it's
+    # the test that would actually have caught the bug.
+    people = await SearchService(graph).search_people("priya m")
+    assert len(people) >= 2, "expected several Priya M* matches to exercise dedup on"
+    ids = [person.id for person in people]
+    assert len(ids) == len(set(ids)), "duplicate person in search results"
+
+
 async def test_every_company_is_reachable_with_its_verified_top_confidence(graph) -> None:
     service = ReferralService(graph)
     for company, (confidence, hops) in _TOP_CONFIDENCE_BY_COMPANY.items():

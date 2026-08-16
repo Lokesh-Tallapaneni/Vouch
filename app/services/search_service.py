@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 from app.db.client import GraphClient
 from app.db.cypher.search import SEARCH_COMPANIES_CYPHER, SEARCH_PEOPLE_CYPHER
 from app.models.person import PersonSummary
@@ -27,7 +29,28 @@ class SearchService:
         rows = await self._graph.read(
             SEARCH_PEOPLE_CYPHER, {"term": normalised, "limit": self._clamp(limit)}
         )
-        return [PersonSummary.model_validate(row) for row in rows]
+        return self._dedupe_by_id(PersonSummary.model_validate(row) for row in rows)
+
+    @staticmethod
+    def _dedupe_by_id(summaries: Iterable[PersonSummary]) -> list[PersonSummary]:
+        """Keep the first occurrence of each person id.
+
+        Defense in depth, not a workaround left in after the real fix: a
+        CognoDB divergence (an inline relationship property on an OPTIONAL
+        MATCH is silently ignored) previously made SEARCH_PEOPLE_CYPHER
+        return one row per employment rather than one per person. Fixed at
+        the query, but this pins the service's own contract -- one row per
+        person -- regardless of what the query underneath does or how the
+        engine behaves.
+        """
+        seen: set[str] = set()
+        deduped: list[PersonSummary] = []
+        for summary in summaries:
+            if summary.id in seen:
+                continue
+            seen.add(summary.id)
+            deduped.append(summary)
+        return deduped
 
     async def search_companies(self, term: str, limit: int = 8) -> list[str]:
         normalised = self._normalise(term)
