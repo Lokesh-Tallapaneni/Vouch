@@ -24,7 +24,6 @@ raises.
 
 from __future__ import annotations
 
-import logging
 import time
 from collections.abc import AsyncGenerator, Mapping
 from contextlib import asynccontextmanager
@@ -35,9 +34,15 @@ from neo4j import AsyncDriver, AsyncGraphDatabase, AsyncSession, Query, RoutingC
 from neo4j.exceptions import AuthError, ClientError, Neo4jError, ServiceUnavailable
 
 from app.core.exceptions import GraphUnavailableError, QueryTimeoutError
+from app.core.logging import get_logger
 from app.core.settings import Settings
 
-log = logging.getLogger(__name__)
+#: ``get_logger`` rather than ``logging.getLogger(__name__)`` -- every other
+#: module in this application logs under the ``vouch.*`` namespace so an
+#: operator can raise or lower this application's verbosity as a whole
+#: without touching the neo4j driver's own logger. Using the raw module path
+#: here would have quietly opted this module out of that.
+log = get_logger("db")
 
 #: Server-side codes for a transaction killed by its own timeout.
 _TIMEOUT_CODES = frozenset(
@@ -207,6 +212,7 @@ class GraphClient:
         params: Mapping[str, Any] | None = None,
         *,
         timeout: float | None = None,
+        name: str | None = None,
     ) -> list[dict[str, Any]]:
         """Run a read query in a managed transaction and return plain dicts.
 
@@ -218,11 +224,16 @@ class GraphClient:
         ``Result`` is invalid once its transaction closes, so returning one
         would blow up at the call site.
 
+        ``name`` identifies this query in the timing log (see ``_log_query``);
+        pass the Cypher module's own constant name (``PERSON_EXISTS_CYPHER``)
+        when the caller has one -- it reads far better in a scrolling log than
+        the query's own opening line.
+
         Raises:
             QueryTimeoutError: the traversal ran past its timeout.
             GraphUnavailableError: unreachable instance, or rejected credentials.
         """
-        return await self._execute(cypher, params, timeout, RoutingControl.READ)
+        return await self._execute(cypher, params, timeout, RoutingControl.READ, name)
 
     async def write(
         self,
@@ -230,14 +241,17 @@ class GraphClient:
         params: Mapping[str, Any] | None = None,
         *,
         timeout: float | None = None,
+        name: str | None = None,
     ) -> list[dict[str, Any]]:
         """Run a write query in a managed transaction.
 
         Used by the migration runner and the seed loader. The web application
         itself issues no writes at all -- see the README on why that is also the
         reason there is no CSRF token.
+
+        See :meth:`read` for what ``name`` is for.
         """
-        return await self._execute(cypher, params, timeout, RoutingControl.WRITE)
+        return await self._execute(cypher, params, timeout, RoutingControl.WRITE, name)
 
     async def _execute(
         self,
@@ -245,6 +259,7 @@ class GraphClient:
         params: Mapping[str, Any] | None,
         timeout: float | None,
         routing: RoutingControl,
+        name: str | None = None,
     ) -> list[dict[str, Any]]:
         """Run one statement through a managed transaction.
 
@@ -258,7 +273,10 @@ class GraphClient:
         transient-failure retry with backoff.
 
         Records are materialised here because a ``Result`` is only valid inside
-        its transaction.
+        its transaction. ``params`` is deliberately never passed to
+        ``_log_query`` -- account statements carry a password hash as a
+        parameter, and a timing log that echoed parameter values would be a
+        credential leak sitting in a log file.
         """
         started = time.perf_counter()
         try:
@@ -276,24 +294,35 @@ class GraphClient:
             raise
 
         rows = [_to_python(record.data()) for record in result.records]
-        self._log_query(cypher, started, len(rows))
+        self._log_query(name or self._default_query_name(cypher), started, len(rows))
         return rows
 
     @staticmethod
-    def _log_query(cypher: str, started: float, rows: int) -> None:
-        """Emit one line per query.
+    def _log_query(name: str, started: float, rows: int) -> None:
+        """Emit one line per query. Real numbers become the README's timing table.
 
-        Named by the first meaningful line of the statement, so a log reads
-        ``name=MATCH (p:Person {id: $person_id})`` rather than an opaque hash.
-        Real numbers from these lines become the README's timing table.
+        Takes the name as an already-resolved string rather than deriving one
+        from the Cypher here, so a caller with a meaningful constant name can
+        pass it straight through -- see :meth:`read`.
         """
-        name = next((line.strip() for line in cypher.splitlines() if line.strip()), "unknown")[:60]
         log.info(
-            "event=query name=%r duration_ms=%d rows=%d",
+            "event=query name=%s duration_ms=%d rows=%d",
             name,
             int((time.perf_counter() - started) * 1000),
             rows,
         )
+
+    @staticmethod
+    def _default_query_name(cypher: str) -> str:
+        """Fall back to the first non-blank line of the Cypher, truncated.
+
+        Only used when a caller passes no ``name``. Imperfect on purpose --
+        a multi-line write's first line is often just its opening ``MATCH``
+        clause, which reads identically in a log to an unrelated read that
+        happens to start the same way -- but "unknown" would be worse, and a
+        caller that cares about a clearer name can supply one.
+        """
+        return next((line.strip() for line in cypher.splitlines() if line.strip()), "unknown")[:60]
 
     async def execute_schema(self, statement: str, *, timeout: float | None = None) -> None:
         """Run one statement in its own auto-commit transaction.

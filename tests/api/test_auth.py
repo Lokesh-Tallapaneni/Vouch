@@ -198,4 +198,10 @@ def test_require_account_rejects_an_unauthenticated_write() -> None:
     with TestClient(app) as client:
         response = client.post("/test-only/write")
     assert response.status_code == 401
-    assert response.json() == {"detail": "Sign in to do that."}
+    # Field-by-field, not exact-dict equality: the error envelope grew a
+    # `reference` (the request id, see app.api.errors) after this test was
+    # written, and an exact-dict comparison would go stale every time the
+    # envelope grows again rather than just when `detail` itself changes.
+    body = response.json()
+    assert body["detail"] == "Sign in to do that."
+    assert body["reference"] == response.headers["x-request-id"]

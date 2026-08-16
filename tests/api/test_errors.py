@@ -46,28 +46,28 @@ def test_graph_unavailable_error_maps_to_its_declared_status_and_message() -> No
     with _client_raising("/_test/unavailable", GraphUnavailableError) as client:
         response = client.get("/_test/unavailable")
     assert response.status_code == GraphUnavailableError.status_code == 503
-    assert response.json() == {"detail": GraphUnavailableError().user_message}
+    assert response.json()["detail"] == GraphUnavailableError().user_message
 
 
 def test_resource_not_found_error_maps_to_its_declared_status_and_message() -> None:
     with _client_raising("/_test/missing", ResourceNotFoundError) as client:
         response = client.get("/_test/missing")
     assert response.status_code == ResourceNotFoundError.status_code == 404
-    assert response.json() == {"detail": ResourceNotFoundError().user_message}
+    assert response.json()["detail"] == ResourceNotFoundError().user_message
 
 
 def test_query_timeout_error_maps_to_its_declared_status_and_message() -> None:
     with _client_raising("/_test/timeout", QueryTimeoutError) as client:
         response = client.get("/_test/timeout")
     assert response.status_code == QueryTimeoutError.status_code == 504
-    assert response.json() == {"detail": QueryTimeoutError().user_message}
+    assert response.json()["detail"] == QueryTimeoutError().user_message
 
 
 def test_invalid_input_error_maps_to_its_declared_status_and_message() -> None:
     with _client_raising("/_test/invalid", InvalidInputError) as client:
         response = client.get("/_test/invalid")
     assert response.status_code == InvalidInputError.status_code == 422
-    assert response.json() == {"detail": InvalidInputError().user_message}
+    assert response.json()["detail"] == InvalidInputError().user_message
 
 
 def test_a_vouch_error_subclass_defined_outside_core_exceptions_is_still_caught() -> None:
@@ -79,14 +79,24 @@ def test_a_vouch_error_subclass_defined_outside_core_exceptions_is_still_caught(
     with _client_raising("/_test/conflict", EmailAlreadyRegisteredError) as client:
         response = client.get("/_test/conflict")
     assert response.status_code == EmailAlreadyRegisteredError.status_code == 409
-    assert response.json() == {"detail": EmailAlreadyRegisteredError().user_message}
+    assert response.json()["detail"] == EmailAlreadyRegisteredError().user_message
 
 
 def test_an_unexpected_exception_becomes_a_generic_500() -> None:
     with _client_raising("/_test/boom", lambda: RuntimeError("cognodb_password=hunter2")) as client:
         response = client.get("/_test/boom")
     assert response.status_code == 500
-    assert response.json() == {"detail": "Something went wrong on our side."}
+    assert response.json()["detail"] == "Something went wrong on our side."
+
+
+def test_every_error_body_carries_a_reference_matching_the_request_id_header() -> None:
+    # Added alongside request-id correlation (Task 16): every one of these
+    # handlers now includes `reference`, so this pins the shape change once
+    # here rather than letting every test above silently start ignoring it
+    # via a `["detail"]` lookup and never checking it exists at all.
+    with _client_raising("/_test/ref-check", ResourceNotFoundError) as client:
+        response = client.get("/_test/ref-check")
+    assert response.json()["reference"] == response.headers["x-request-id"]
 
 
 def test_a_framework_http_exception_is_not_swallowed_by_the_catch_all() -> None:
@@ -103,7 +113,7 @@ def test_a_framework_http_exception_is_not_swallowed_by_the_catch_all() -> None:
     ) as client:
         response = client.get("/_test/deliberate-401")
     assert response.status_code == 401
-    assert response.json() == {"detail": "Sign in to do that."}
+    assert response.json()["detail"] == "Sign in to do that."
 
 
 def test_a_request_validation_error_keeps_its_422_and_structured_detail() -> None:
@@ -115,7 +125,7 @@ def test_a_request_validation_error_keeps_its_422_and_structured_detail() -> Non
     with _client_raising("/_test/bad-body", lambda: RequestValidationError(errors)) as client:
         response = client.get("/_test/bad-body")
     assert response.status_code == 422
-    assert response.json() == {"detail": errors}
+    assert response.json()["detail"] == errors
 
 
 def test_no_response_body_ever_carries_a_traceback_class_name_or_internal_path() -> None:

@@ -22,6 +22,13 @@ against ``veloce/app/dispatch.py``'s dispatch loop, not assumed: it catches
 ``HTTPException`` first and looks up a handler by walking *that* exception's
 MRO, so the most specific registration -- ``HTTPException`` itself, here --
 wins over the broader ``Exception`` handler.
+
+Every response also carries ``reference``: the id ``RequestIDMiddleware``
+(registered in ``create_app()``, ahead of these handlers in the pipeline)
+already minted for the request, so a user hitting an error has something
+short to quote when reporting it, and a log line -- ``vouch.errors`` below,
+or a query timing line -- can be traced back to the exact request that
+triggered it without needing a timestamp match.
 """
 
 from __future__ import annotations
@@ -33,6 +40,17 @@ from app.core.exceptions import VouchError
 from app.core.logging import get_logger
 
 log = get_logger("errors")
+
+
+def _error_body(detail: object, request: Request) -> dict[str, object]:
+    """Shared shape for every error response: what happened, and what to quote.
+
+    ``request.state`` is empty (not missing) if ``RequestIDMiddleware`` was
+    somehow never registered -- ``.get`` returns ``None`` rather than raising,
+    so a misconfigured middleware stack degrades to no reference instead of a
+    second, unrelated 500 while handling the first one.
+    """
+    return {"detail": detail, "reference": request.state.get("request_id")}
 
 
 async def handle_vouch_error(request: Request, exc: VouchError) -> JSONResponse:
@@ -47,7 +65,7 @@ async def handle_vouch_error(request: Request, exc: VouchError) -> JSONResponse:
         log.error("%s on %s: %s", type(exc).__name__, request.url.path, exc)
     else:
         log.info("%s on %s", type(exc).__name__, request.url.path)
-    return JSONResponse({"detail": exc.user_message}, status_code=exc.status_code)
+    return JSONResponse(_error_body(exc.user_message, request), status_code=exc.status_code)
 
 
 async def handle_http_exception(request: Request, exc: HTTPException) -> JSONResponse:
@@ -72,7 +90,9 @@ async def handle_http_exception(request: Request, exc: HTTPException) -> JSONRes
         log.info("%s on %s", type(exc).__name__, request.url.path)
     structured = getattr(exc, "errors", None)
     detail = structured if structured is not None else (exc.detail or "Error")
-    return JSONResponse({"detail": detail}, status_code=exc.status_code, headers=exc.headers)
+    return JSONResponse(
+        _error_body(detail, request), status_code=exc.status_code, headers=exc.headers
+    )
 
 
 async def handle_unexpected_error(request: Request, exc: Exception) -> JSONResponse:
@@ -85,7 +105,7 @@ async def handle_unexpected_error(request: Request, exc: Exception) -> JSONRespo
     the exception interpolated into the response.
     """
     log.exception("unhandled error on %s", request.url.path)
-    return JSONResponse({"detail": "Something went wrong on our side."}, status_code=500)
+    return JSONResponse(_error_body("Something went wrong on our side.", request), status_code=500)
 
 
 def register_exception_handlers(app: Veloce) -> None:

@@ -29,6 +29,14 @@ class ErrorResponse(SchemaBase):
         description="What went wrong, in language safe to show a user.",
         examples=["We couldn't find that person in the network."],
     )
+    reference: str | None = Field(
+        default=None,
+        description=(
+            "The request's correlation id, to quote when reporting this error. "
+            "Absent only if request-id assignment itself failed."
+        ),
+        examples=["3f2a1e9c-4b7d-4c2e-9f5a-1d6e8c0b7a42"],
+    )
 
 
 #: Attached to routes as ``responses=ERROR_RESPONSES``. Documents the failures
