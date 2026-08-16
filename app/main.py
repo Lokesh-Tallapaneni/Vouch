@@ -11,7 +11,7 @@ Route surface:
 
     /health, /ready      unversioned operational probes (app.api.health)
     /api/v1/...          versioned JSON API           (app.api.v1)
-    /                    server-rendered pages        (app.web, to follow)
+    /                    server-rendered pages        (app.web)
 """
 
 from __future__ import annotations
@@ -34,6 +34,7 @@ from app.api import health
 from app.api.errors import register_exception_handlers
 from app.api.v1 import router as v1
 from app.core.lifespan import lifespan
+from app.web import router as web
 
 APP_TITLE = "Vouch"
 APP_VERSION = "0.1.0"
@@ -58,9 +59,7 @@ def create_app() -> Veloce:
 
     app.include_router(health.router)
     app.include_router(v1.router)
-    # app.web (server-rendered pages, templates in app.web.templating) does
-    # not exist yet -- the UI band is building it. Once it lands, its router
-    # needs `app.include_router(web.router)` here, alongside the two above.
+    app.include_router(web.router)
     register_exception_handlers(app)
 
     # `app.mount("/static", StaticFiles(...))` -- what an earlier draft of
