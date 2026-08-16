@@ -1,4 +1,17 @@
-"""Person wire contract."""
+"""Person wire contract.
+
+A response schema's "required" is a promise to the client, not a mirror of
+how the model was constructed. ``EmploymentResponse.is_current`` and
+``PersonProfileResponse.headline`` are required here even though
+``EmploymentRecord.is_current`` and ``PersonProfile.headline`` default on the
+model side, because the response *always* carries a value for them -- the
+model's default guarantees that. Copying the model's optionality into the
+response would only weaken that guarantee, telling an OpenAPI reader the
+field might be absent when it never is. Field-for-field parity between
+models and schemas is not the goal on its own; where the two layers say
+different but individually correct things, the response says what the wire
+actually promises.
+"""
 
 from __future__ import annotations
 
