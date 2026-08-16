@@ -675,6 +675,9 @@ button:hover, input[type="submit"]:hover { filter: brightness(1.15); }
   background: var(--surface); border: 1px solid var(--rule);
   border-radius: var(--radius); padding: var(--s3);
 }
+/* Sits between the draft and the copy button because that is the order the
+   decision happens in: read it, change it, then take it. */
+.intro__hint { font-size: 0.8rem; color: var(--muted); margin: 0; }
 .intro__copy {
   align-self: flex-start; font: inherit; font-size: 0.85rem;
   color: var(--accent); background: var(--surface);

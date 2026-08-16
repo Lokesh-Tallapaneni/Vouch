@@ -20,8 +20,14 @@
   <details class="intro">
     <summary>Ask {{ route.hop_details[0].to_name }} for an intro</summary>
     <div class="intro__body">
-      <textarea class="intro__message" rows="8" readonly
-                aria-label="Intro message to {{ route.hop_details[0].to_name }}">{{ build_intro_message(route, target_name, target_title|default(''), company|default('')) }}</textarea>
+      {# Editable, not readonly: nobody should send a generated intro
+         verbatim, and the draft is a starting point rather than a finished
+         message. Locking it would push people to paste it elsewhere just to
+         add a sentence. #}
+      <textarea class="intro__message" rows="8"
+                aria-label="Intro message to {{ route.hop_details[0].to_name }}, editable">{{ build_intro_message(route, target_name, target_title|default(''), company|default('')) }}</textarea>
+      <p class="intro__hint">Edit before sending — a note that sounds like you
+         gets answered.</p>
       <button type="button" class="intro__copy">Copy</button>
     </div>
   </details>
