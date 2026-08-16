@@ -4,8 +4,9 @@
 !.env.example
 *credentials*.txt
 
-# Planning notes (local only)
+# Planning and working notes (local only)
 claudedocs/
+CLAUDE.md
 
 # Python
 __pycache__/

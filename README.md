@@ -63,14 +63,24 @@ python -m venv .venv && .venv/bin/pip install -r requirements.txt
 
 ```
 app/
-├── config.py      # env → validated pydantic Settings, fail-fast at boot
-├── errors.py      # error taxonomy → HTTP status → user-visible state
-└── db/
-    └── driver.py  # pool config, lifecycle, managed transactions, readiness probe
+├── main.py                 # application factory — wiring only
+├── core/                   # cross-cutting concerns, no domain logic
+│   ├── settings.py         # env → validated pydantic Settings, fail-fast at boot
+│   ├── exceptions.py       # error taxonomy → HTTP status → user-visible state
+│   ├── logging.py          # one place configures handlers, called from lifespan
+│   └── lifespan.py         # builds the graph client on startup, closes on shutdown
+├── db/
+│   └── client.py           # pool config, sessions, managed transactions, probe
+├── api/
+│   ├── dependencies.py     # get_graph / get_settings → Annotated aliases
+│   ├── health.py           # /health, /ready — deliberately unversioned
+│   └── v1/
+│       └── router.py       # /api/v1 — the version prefix, declared once
+└── services/               # query results → domain models. No Cypher above here.
 ```
 
-Dependency direction is one-way: `routes → services → db.queries → driver`.
-Routes never touch Cypher; `db/` never touches HTTP.
+**Dependency direction is one-way:** `api → services → db`. Route handlers never
+contain Cypher; `db/` never imports anything HTTP-shaped.
 
 ---
 

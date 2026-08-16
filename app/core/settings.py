@@ -14,15 +14,9 @@ from typing import Annotated, Literal
 from pydantic import Field, SecretStr, ValidationError, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.core.exceptions import ConfigurationError
+
 _ALLOWED_SCHEMES = ("bolt://", "bolt+s://", "bolt+ssc://", "neo4j://", "neo4j+s://", "neo4j+ssc://")
-
-
-class ConfigError(RuntimeError):
-    """A required setting is missing or malformed.
-
-    Raised in place of pydantic's ValidationError so callers (and the Docker
-    entrypoint) get one readable message naming the offending variable.
-    """
 
 
 class Settings(BaseSettings):
@@ -79,7 +73,7 @@ def get_settings() -> Settings:
     """Build and validate settings once per process.
 
     Raises:
-        ConfigError: with a message naming every variable that failed.
+        ConfigurationError: with a message naming every variable that failed.
     """
     try:
         return Settings()  # type: ignore[call-arg]  # values come from the environment
@@ -88,6 +82,6 @@ def get_settings() -> Settings:
             f"  - {'.'.join(str(p) for p in err['loc']).upper()}: {err['msg']}"
             for err in exc.errors()
         )
-        raise ConfigError(
+        raise ConfigurationError(
             "Invalid configuration. Copy .env.example to .env and fill it in.\n" + problems
         ) from exc

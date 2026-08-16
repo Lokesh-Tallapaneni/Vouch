@@ -33,8 +33,8 @@ from typing import Any, Self
 from neo4j import AsyncDriver, AsyncGraphDatabase, AsyncManagedTransaction, AsyncSession, Query
 from neo4j.exceptions import AuthError, ClientError, Neo4jError, ServiceUnavailable
 
-from app.config import Settings
-from app.errors import DatabaseUnavailable, QueryTimeout
+from app.core.exceptions import GraphUnavailableError, QueryTimeoutError
+from app.core.settings import Settings
 
 log = logging.getLogger(__name__)
 
@@ -111,7 +111,7 @@ def build_driver(settings: Settings) -> AsyncDriver:
     )
 
 
-class Database:
+class GraphClient:
     """Owns the driver and speaks the application's error taxonomy.
 
     The neo4j exception hierarchy stops here: everything above this class
@@ -119,8 +119,8 @@ class Database:
 
     Usable as an async context manager, which is how scripts should hold it::
 
-        async with Database.connect(settings) as db:
-            rows = await db.read("RETURN 1 AS ok")
+        async with GraphClient.connect(settings) as graph:
+            rows = await graph.read("RETURN 1 AS ok")
         # driver closed, pool drained, even if the body raised
     """
 
@@ -192,8 +192,8 @@ class Database:
         would blow up at the call site.
 
         Raises:
-            QueryTimeout: the traversal ran past its timeout.
-            DatabaseUnavailable: unreachable instance, or rejected credentials.
+            QueryTimeoutError: the traversal ran past its timeout.
+            GraphUnavailableError: unreachable instance, or rejected credentials.
         """
         query = self._query(cypher, timeout)
 
@@ -208,7 +208,7 @@ class Database:
             raise self._unavailable(exc) from exc
         except ClientError as exc:
             if exc.code in _TIMEOUT_CODES:
-                raise QueryTimeout() from exc
+                raise QueryTimeoutError() from exc
             raise
         except Neo4jError:
             log.exception("read query failed")
@@ -240,7 +240,7 @@ class Database:
             raise self._unavailable(exc) from exc
         except ClientError as exc:
             if exc.code in _TIMEOUT_CODES:
-                raise QueryTimeout() from exc
+                raise QueryTimeoutError() from exc
             raise
 
     async def execute_schema(self, statement: str, *, timeout: float | None = None) -> None:
@@ -290,9 +290,9 @@ class Database:
         return Query(cypher, timeout=timeout or self._settings.query_timeout_s)  # type: ignore[arg-type]
 
     @staticmethod
-    def _unavailable(exc: Exception) -> DatabaseUnavailable:
+    def _unavailable(exc: Exception) -> GraphUnavailableError:
         if isinstance(exc, AuthError):
             log.error("database rejected our credentials")
-            return DatabaseUnavailable("The graph database rejected our credentials.")
+            return GraphUnavailableError("The graph database rejected our credentials.")
         log.error("database unreachable: %s", exc)
-        return DatabaseUnavailable()
+        return GraphUnavailableError()
