@@ -1,8 +1,21 @@
 """Cypher for the typeahead.
 
-Prefix search over the `person_name` range index from migration 0002.
-Substring search would need a full-text index -- a deliberate scope line, and
-worth stating in the README rather than leaving as an apparent oversight.
+Matches a prefix of *any word* in the name, not just the start of the whole
+string. Whole-string `STARTS WITH` alone -- which is what this used to do --
+means searching a surname finds nobody: "kowalski" returned zero rows with
+six Kowalskis in the graph, and "sharma" zero with six Sharmas. Searching by
+last name is not an exotic case, and an empty result there reads as a broken
+feature rather than a scope line.
+
+The cost of that is the `person_name` range index from migration 0002, which
+can only serve a whole-string prefix; the word-level test forces a label
+scan. Measured on the live instance at 617 people: 511-525 ms, indistinguishable
+from the indexed form, because the ~500 ms network round trip dominates
+entirely. That trade is right at this size and wrong at a large one -- the
+fix then is a full-text index, not reverting to whole-string prefix.
+
+Whole-string matches still sort first, so typing "priya" leads with the
+people actually called Priya rather than burying them among surnames.
 
 VERIFIED AGAINST THE LIVE INSTANCE: an inline relationship property on an
 `OPTIONAL MATCH` is silently ignored on CognoDB -- `OPTIONAL MATCH
@@ -21,18 +34,20 @@ from __future__ import annotations
 SEARCH_PEOPLE_CYPHER = """
 MATCH (p:Person)
 WHERE toLower(p.name) STARTS WITH $term
+   OR any(word IN split(toLower(p.name), ' ') WHERE word STARTS WITH $term)
 OPTIONAL MATCH (p)-[w:WORKED_AT]->(c:Company)
   WHERE w.current = true
 RETURN p.id AS id, p.name AS name, p.title AS title, c.name AS current_company
-ORDER BY p.name
+ORDER BY CASE WHEN toLower(p.name) STARTS WITH $term THEN 0 ELSE 1 END, p.name
 LIMIT $limit
 """
 
 SEARCH_COMPANIES_CYPHER = """
 MATCH (c:Company)
 WHERE toLower(c.name) STARTS WITH $term
+   OR any(word IN split(toLower(c.name), ' ') WHERE word STARTS WITH $term)
 RETURN c.name AS name
-ORDER BY c.name
+ORDER BY CASE WHEN toLower(c.name) STARTS WITH $term THEN 0 ELSE 1 END, c.name
 LIMIT $limit
 """
 

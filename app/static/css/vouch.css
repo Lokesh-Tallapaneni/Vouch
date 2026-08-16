@@ -458,7 +458,12 @@ button:hover, input[type="submit"]:hover { filter: brightness(1.15); }
   text-decoration: none; color: var(--ink);
 }
 .results a:hover { background: var(--paper); }
-.results .confidence, .results span { color: var(--muted); }
+/* Name in full ink, supporting detail muted. Addressed by class rather than
+   the old blanket `.results span`, which would now grey out the name too --
+   the name is wrapped in its own span since the detail line grew from a
+   bare title to "title · employer". */
+.results__name { color: var(--ink); font-weight: 600; }
+.results__detail { color: var(--muted); font-size: 0.85rem; text-align: right; }
 
 /* The sign-up claim widget's results are buttons, not links -- selecting
    one posts a selection rather than navigating away (see

@@ -36,8 +36,18 @@ async def search_fragment(
         results = [{"label": name, "href": f"/companies/{name}", "detail": ""} for name in names]
     else:
         people = await search.search_people(q)
+        # Title *and* employer. The query already returns current_company and
+        # this used to drop it, which left a result list where "Priya Das --
+        # Site Reliability Engineer" and "Priya Kowalski -- Site Reliability
+        # Engineer" were indistinguishable. Picking the right person out of a
+        # typeahead is the whole job of the detail line; the title alone
+        # routinely doesn't do it in a graph with this many engineers.
         results = [
-            {"label": person.name, "href": f"/people/{person.id}", "detail": person.title or ""}
+            {
+                "label": person.name,
+                "href": f"/people/{person.id}",
+                "detail": " · ".join(filter(None, (person.title, person.current_company))),
+            }
             for person in people
         ]
     return templates.TemplateResponse(
