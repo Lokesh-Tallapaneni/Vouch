@@ -378,11 +378,14 @@ returns a boring answer. Instead:
 as a magic number:
 
 ```python
-strength = min(1.0, 0.15
+strength = min(
+    1.0,
+    0.15
     + 0.35 * same_team
-    + 0.20 * shared_projects          # capped at 2
+    + 0.20 * shared_projects  # capped at 2
     + 0.20 * min(tenure_overlap_years, 3) / 3
-    + 0.10 * random.uniform(0, 1))
+    + 0.10 * random.uniform(0, 1),
+)
 ```
 
 Measured against the loaded graph, the formula produces exactly the
