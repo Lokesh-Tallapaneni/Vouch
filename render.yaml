@@ -1,0 +1,36 @@
+# Render Blueprint. Deploys the Dockerfile as a single free-tier web service.
+#
+# healthCheckPath is /health, not /ready, deliberately: Render polls this path
+# on the running instance and restarts it after 60s of consecutive failures
+# (https://render.com/docs/health-checks), the same restart-on-failure
+# semantics as a Kubernetes liveness probe. /ready touches CognoDB, so a brief
+# database blip would fail it and cause Render to restart a perfectly healthy
+# process -- the exact anti-pattern app/api/health.py's docstring warns
+# against. /health performs no I/O, so it only fails when the process itself
+# is actually stuck.
+#
+# No dockerCommand: the image's own CMD already chains
+# `python -m scripts.migrate && exec uvicorn ...`, which must run on every
+# deploy so the server never binds against a schema the repo cannot reproduce.
+#
+# Secrets (COGNODB_URI, COGNODB_USER, COGNODB_PASSWORD, JWT_SECRET) are
+# `sync: false` -- entered once in the Render dashboard during Blueprint
+# creation, never committed here.
+services:
+  - name: vouch
+    type: web
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: COGNODB_URI
+        sync: false
+      - key: COGNODB_USER
+        sync: false
+      - key: COGNODB_PASSWORD
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: LOG_LEVEL
+        value: INFO
