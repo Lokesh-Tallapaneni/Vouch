@@ -35,7 +35,7 @@ from app.core.exceptions import ResourceNotFoundError
 from app.core.security import SESSION_COOKIE_NAME, issue_session_token
 from app.models.account import Account, AccountCreate, Credentials, SessionClaims
 from app.models.person import PersonProfile, ProfileUpdate
-from app.models.referral import CompanyInsider
+from app.models.referral import CompanyInsider, IntroductionRoute
 from app.services.account_service import EmailAlreadyRegisteredError
 from app.services.person_service import PersonService
 from app.web.templating import templates
@@ -54,24 +54,24 @@ class _CompanyInsight:
 def _company_insight(
     company: str, insiders: list[CompanyInsider], max_hops: int
 ) -> _CompanyInsight | None:
-    """Compute the finding a ranked list of routes leaves implicit.
+    """The one finding grouping insiders by first hop doesn't cover: a
+    network that barely reaches this company at all.
 
-    No new query -- both shapes below read only the insiders the page
-    already fetched. Two shapes, in priority order:
+    No new query -- reads only the insiders the page already fetched. Used
+    to also name the intermediary who shows up on the most routes ("8 of
+    10 routes go through Lucas Bhat"), when most of a company's routes ran
+    through the same person -- superseded by grouping insiders by
+    ``route.hop_details[0].to_name`` directly on the page (see
+    ``_group_insiders_by_first_hop``): a group header ("Ask Lucas Bhat ·
+    8 people") states that fact structurally, so restating it in prose
+    here would say the same thing twice.
 
-    1. The network barely reaches this company at all (the *best* route
-       already sits at the hop ceiling, or its own confidence is in the
-       weak band). Saying that plainly beats a list of near-identical weak
-       numbers that just reads as broken -- Cadence Retail's ten routes
-       cluster at 0.20-0.37 through a single four-hop path, and without this
-       sentence that page looks like a bug report, not an answer.
-    2. Otherwise, the person who shows up on the most routes. When most of
-       a company's routes run through the same intermediary, that fact
-       *is* the answer, and it was sitting unstated in a list of near-
-       duplicate rows -- Everline: 8 of 10 routes go through Lucas Bhat.
-
-    Counts routes an intermediary appears *on*, not raw name occurrences --
-    two hops through the same person on one route must not double-count.
+    What's left is the case grouping can't express: the *best* route
+    already sits at the hop ceiling, or its own confidence is in the weak
+    band. Saying that plainly beats a list of near-identical weak numbers
+    that just reads as broken -- Cadence Retail's ten routes cluster at
+    0.20-0.37 through a single four-hop path, and without this sentence
+    that page looks like a bug report, not an answer.
     """
     if not insiders:
         return None
@@ -88,20 +88,77 @@ def _company_insight(
                 "long, which rarely gets a reply."
             ),
         )
+    return None
 
-    counts: dict[str, int] = {}
+
+@dataclass(frozen=True, slots=True)
+class _InsiderGroup:
+    """Everyone reachable through the same first hop out of the viewer,
+    plus the one edge every route in the group shares.
+
+    Every route in this app starts at the viewer (find_company_insiders
+    takes viewer_id as its start node), so ``trunk`` -- the "you -> asker"
+    edge -- is identical for every member of the group: it's the same
+    relationship in the graph, read off any one of them. Drawing it once
+    on the page instead of once per person is the entire point of
+    grouping -- see _group_insiders_by_first_hop.
+    """
+
+    asker_name: str
+    trunk: IntroductionRoute
+    insiders: list[CompanyInsider]
+
+
+def _group_insiders_by_first_hop(insiders: list[CompanyInsider]) -> list[_InsiderGroup]:
+    """Group insiders by the person you'd actually message, not the target.
+
+    ``route.hop_details[0].to_name`` -- the first hop out of the viewer --
+    is the only decision a reader makes on this page (who to ask), so it's
+    the organising principle rather than a count buried in a banner. An
+    insider one hop from the viewer is their own asker
+    (``hop_details[0].to_name == insider.name``): there's no intermediary
+    to name, you just reach out directly, and the resulting group of one
+    still has to render correctly ("Ask Priya Sharma · 1 person").
+
+    Groups come back largest first -- the point of grouping is exactly the
+    fact the old insight banner used to spell out in prose ("8 of 10
+    routes go through X"); sorting by size makes that structural instead
+    of textual. Python's sort is stable, so ties keep the incoming order,
+    which is already confidence-descending (COMPANY_INSIDERS_CYPHER's own
+    ordering) -- the same tiebreak the old flat list used.
+
+    Grouping happens here, not in the template: ``route.hop_details[0]``
+    reached from Jinja is exactly the kind of nested-attribute-inside-a-
+    groupby the language handles awkwardly, and pages.py already shapes
+    every other piece of data this page renders.
+    """
+    order: list[str] = []
+    buckets: dict[str, list[CompanyInsider]] = {}
     for insider in insiders:
-        for name in set(insider.route.chain[1:-1]):
-            counts[name] = counts.get(name, 0) + 1
-    if not counts:
-        return None
-    name, count = max(counts.items(), key=lambda item: item[1])
-    if count < 2:
-        return None
-    return _CompanyInsight(
-        headline=f"{name} is your way into {company}.",
-        detail=f"{count} of your {len(insiders)} routes go through them — start there.",
-    )
+        asker = insider.route.hop_details[0].to_name
+        if asker not in buckets:
+            buckets[asker] = []
+            order.append(asker)
+        buckets[asker].append(insider)
+
+    groups = [
+        _InsiderGroup(
+            asker_name=name,
+            # A genuine 1-hop route from the viewer to the asker: its
+            # confidence is honestly just that one edge's strength, since a
+            # single-hop route's confidence is the product of one number.
+            trunk=IntroductionRoute(
+                chain=[members[0].route.hop_details[0].from_name, name],
+                hops=1,
+                confidence=members[0].route.hop_details[0].strength,
+                hop_details=[members[0].route.hop_details[0]],
+            ),
+            insiders=members,
+        )
+        for name, members in ((name, buckets[name]) for name in order)
+    ]
+    groups.sort(key=lambda group: len(group.insiders), reverse=True)
+    return groups
 
 
 #: Rendered as clickable chips on the landing page so a non-technical evaluator
@@ -283,6 +340,7 @@ async def show_company(
             "current_account_name": display_name,
             "company": company_name,
             "insiders": insiders,
+            "groups": _group_insiders_by_first_hop(insiders),
             "max_hops": max_hops,
             "insight": _company_insight(company_name, insiders, max_hops),
         },

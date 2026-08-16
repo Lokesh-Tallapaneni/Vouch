@@ -701,3 +701,100 @@ button:hover, input[type="submit"]:hover { filter: brightness(1.15); }
    reload -- "Copied" has to look different from the resting state, or a
    click that appears to do nothing reads as broken. */
 .intro__copy:disabled { color: var(--conf-strong); border-color: var(--conf-strong); cursor: default; }
+
+/* --- Company page: grouped insiders ----------------------------------------
+   Every route to a company insider starts with the same first hop -- the
+   person you'd actually message -- so pages._group_insiders_by_first_hop
+   collapses that shared prefix into one heading and one line in the trunk
+   box below, and each row shrinks to what actually differs between people:
+   name, title, hop count, score. Full per-person chain and the intro draft
+   move into the row's own disclosure, open on demand rather than drawn
+   eleven times. */
+.reach-summary { color: var(--muted); font-size: 0.95rem; margin: var(--s3) 0 var(--s5); }
+
+.trunk-box {
+  background: var(--surface); border: 1px solid var(--rule);
+  border-radius: var(--radius); padding: var(--s4) var(--s5);
+  margin-bottom: var(--s6);
+}
+.trunk-box h2 { font-size: 0.95rem; margin: 0; }
+/* Decorative in the same sense .hero__demo's chain is: several of these can
+   stack in one box, so each gets a tighter vertical rhythm than a standalone
+   route card needs. */
+.trunk-box .chain { padding: var(--s3) 0 var(--s2); }
+.trunk-box .legend { margin: var(--s2) 0 0; border: none; padding: 0; background: none; }
+
+.insider-group { margin-bottom: var(--s6); }
+.insider-group__header {
+  display: flex; align-items: baseline; gap: var(--s3); flex-wrap: wrap;
+  font-size: 1.05rem; margin: 0 0 var(--s3);
+}
+/* Same tabular-figure family as .confidence/.legend, not prose -- a count is
+   a quantity, and it sits right after the heading it qualifies. */
+.insider-group__count {
+  font-family: var(--font-mono); font-size: 0.78rem; font-weight: 400;
+  color: var(--muted);
+}
+
+/* One bordered card per group holding all its rows, rather than one card per
+   row -- the row border between people inside a group is enough separation;
+   repeating a full card border and margin per person is exactly the "same
+   weight for what's identical and what differs" problem this redesign
+   exists to fix. */
+.insider-rows {
+  list-style: none; margin: 0; padding: 0;
+  border: 1px solid var(--rule); border-radius: var(--radius);
+  background: var(--surface); overflow: hidden;
+}
+.insider-rows > li + li { border-top: 1px solid var(--rule); }
+
+/* The row *is* the disclosure -- opening it reveals the chain and the intro
+   draft together, so there is exactly one thing to click per person, not a
+   toggle nested inside a toggle. */
+.insider-row { list-style: none; }
+.insider-row::-webkit-details-marker,
+.insider-row summary::-webkit-details-marker { display: none; }
+.insider-row__summary {
+  display: flex; align-items: center; gap: var(--s4); flex-wrap: wrap;
+  /* ~44px collapsed: this is the row that used to run ~150px per person --
+     what's identical across a group (the chain) is gone from here entirely,
+     so what's left is exactly what differs: name, title, hops, score. */
+  padding: var(--s3) var(--s4);
+  list-style: none;
+  cursor: pointer;
+}
+.insider-row__summary:hover { background: var(--paper); }
+.insider-row__name { font-weight: 600; flex: 1 1 11rem; min-width: 8rem; }
+.insider-row__name a { color: var(--ink); text-decoration: none; }
+.insider-row__name a:hover { color: var(--accent); text-decoration: underline; }
+.insider-row__title { color: var(--muted); font-size: 0.9rem; flex: 1 1 8rem; }
+.insider-row__hops {
+  color: var(--muted); font-size: 0.8rem; font-family: var(--font-mono);
+  flex: none; white-space: nowrap;
+}
+.insider-row__action {
+  color: var(--accent); font-size: 0.85rem; font-weight: 600;
+  flex: none; margin-left: auto; white-space: nowrap;
+}
+.insider-row__detail { padding: 0 var(--s4) var(--s4); }
+/* The chain inside an open row needs less top air than a standalone one --
+   the summary line right above it already establishes who this is. */
+.insider-row__detail .chain { padding-top: 0; }
+/* Lives here, not in the summary -- see the template comment: a real link
+   nested inside <summary> gives one click two competing behaviours. */
+.insider-row__profile-link {
+  margin: 0 0 var(--s3); font-size: 0.85rem;
+}
+.insider-row__profile-link a { color: var(--accent); text-decoration: none; }
+.insider-row__profile-link a:hover { text-decoration: underline; }
+
+@media (max-width: 46rem) {
+  /* Score and the "Draft intro" hint move to their own line under
+     name/title/hops rather than wrapping mid-row -- the same fix
+     .site-header__nav needed above, for the same reason: flex-wrap only
+     stops items breaking *inside* themselves, it doesn't decide where the
+     break falls, and letting it fall wherever content ran out cut "Draft
+     intro" in half at 390px. */
+  .insider-row__summary { row-gap: var(--s2); }
+  .insider-row__name, .insider-row__title { flex-basis: 100%; }
+}

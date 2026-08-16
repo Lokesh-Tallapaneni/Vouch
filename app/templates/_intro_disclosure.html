@@ -1,45 +1,21 @@
 {# The intro-request message under a route -- the review's sharpest note was
-   that a route ends at a picture with no action; this is the action. No
-   backend: the message is rendered entirely from `route` plus whatever the
-   caller already knows about the target, via `build_intro_message` (a
-   Jinja global registered in app.web.templating, not computed per row by
-   every page handler -- see that module).
+   that a route ends at a picture with no action; this is the action. The
+   actual draft (textarea, hint, Copy button) lives in
+   _intro_message_body.html; this file is just the "Ask X for an intro"
+   toggle around it -- company.html's grouped rows include that body
+   directly instead, since their group header already names the asker.
 
    Expects `route` (IntroductionRoute) and `target_name` in context;
    `target_title`/`company` are optional and degrade gracefully when unset
    (Jinja's `|default('')` on an undefined name, not a KeyError). Renders
    nothing for a route with no hops -- there's no one to ask.
 
-   The textarea carries a `name` and no `id`. Chrome devtools flags a form
-   field with neither, regardless of aria-label -- the two aren't
-   interchangeable to that lint, even though aria-label alone is enough for
-   the accessible name a screen reader uses. `name` clears the lint and,
-   unlike `id`, carries no uniqueness requirement, so many of these can sit
-   on one page. That matters here: the obvious id (`loop.index0`) both
-   restricts this partial to being included from inside a for-loop and
-   collides with itself the moment a page renders two route lists, since
-   the counter restarts per loop. Nothing posts this field -- it lives
-   outside any <form> -- so the name is inert beyond satisfying the lint.
-
    The summary names the person, not the feature ("Ask Ananya for an
    intro", not "Show message") -- a disclosure's label should say what
-   happens when you open it. The copy button's click handler lives in
-   static/js/copy-intro.js, not inline: script-src 'self' blocks inline
-   script and inline event-handler attributes alike -- the exact trap that
-   silently broke sign-out's hx-on earlier (see _header.html). #}
+   happens when you open it. #}
 {% if route.hop_details %}
   <details class="intro">
     <summary>Ask {{ route.hop_details[0].to_name }} for an intro</summary>
-    <div class="intro__body">
-      {# Editable, not readonly: nobody should send a generated intro
-         verbatim, and the draft is a starting point rather than a finished
-         message. Locking it would push people to paste it elsewhere just to
-         add a sentence. #}
-      <textarea class="intro__message" name="intro_message" rows="8"
-                aria-label="Intro message to {{ route.hop_details[0].to_name }}, editable">{{ build_intro_message(route, target_name, target_title|default(''), company|default('')) }}</textarea>
-      <p class="intro__hint">Edit before sending — a note that sounds like you
-         gets answered.</p>
-      <button type="button" class="intro__copy">Copy</button>
-    </div>
+    {% include "_intro_message_body.html" %}
   </details>
 {% endif %}

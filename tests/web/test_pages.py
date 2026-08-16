@@ -149,10 +149,13 @@ def test_the_signin_page_explains_a_redirect_from_profile() -> None:
     assert "Sign in to edit your profile." in response.text
 
 
-def test_the_company_page_names_the_shared_intermediary() -> None:
+def test_the_company_page_groups_insiders_by_who_youd_ask() -> None:
     # Everline in the real dataset: most routes to its insiders run through
-    # the same person -- the insight is meant to say so instead of leaving
-    # a reader to notice the repetition themselves.
+    # the same person. The old insight banner used to say so in prose --
+    # "Ananya Kowalski is your way into Everline. 3 of your 3 routes go
+    # through them" -- superseded by grouping: the group header states the
+    # same fact structurally ("Ask Ananya Kowalski" plus a count), so the
+    # banner is gone rather than saying it twice.
     rows = [
         {
             "person_id": f"p{i:04d}",
@@ -171,8 +174,50 @@ def test_the_company_page_names_the_shared_intermediary() -> None:
     )
     with _client(graph) as client:
         response = client.get("/companies/Everline")
-    assert "Ananya Kowalski is your way into Everline." in response.text
-    assert "3 of your 3 routes" in response.text
+    assert "Ask Ananya Kowalski" in response.text
+    assert "3 people" in response.text
+    assert "is your way into Everline" not in response.text
+
+
+def test_a_direct_connection_is_its_own_group_of_one() -> None:
+    # One hop away: hop_details[0].to_name IS the insider -- there's no
+    # intermediary to name, you message them directly. The group-of-one
+    # has to render correctly too, not just the multi-hop case.
+    row = {
+        "person_id": "p0500",
+        "name": "Priya Sharma",
+        "title": "Staff Engineer",
+        "chain": ["Lokesh Tallapaneni", "Priya Sharma"],
+        "contexts": ["team"],
+        "strengths": [0.8],
+        "hops": 1,
+        "confidence": 0.8,
+    }
+    graph = FakeGraph(
+        {"MATCH (insider:Person)-[:WORKED_AT {current: true}]->(:Company {name: $company})": [row]}
+    )
+    with _client(graph) as client:
+        response = client.get("/companies/Everline")
+    assert "Ask Priya Sharma" in response.text
+    assert "1 person" in response.text
+
+
+def test_the_company_page_draws_the_trunk_once_with_the_legend() -> None:
+    graph = FakeGraph(
+        {
+            "MATCH (insider:Person)-[:WORKED_AT {current: true}]->(:Company {name: $company})": [
+                _EVERLINE_INSIDER
+            ]
+        }
+    )
+    with _client(graph) as client:
+        response = client.get("/companies/Everline")
+    assert "How you get in" in response.text
+    assert "same team" in response.text
+    assert "shared project" in response.text
+    assert "former colleague" in response.text
+    assert "11 reachable" not in response.text  # only one insider in this fixture
+    assert "1 reachable" in response.text
 
 
 def test_the_company_page_reframes_a_barely_reachable_company() -> None:
@@ -559,7 +604,12 @@ def test_a_company_route_gets_an_intro_message_disclosure() -> None:
     )
     with _client(graph) as client:
         response = client.get("/companies/Everline")
-    assert "Ask Ananya Kowalski for an intro" in response.text
+    # No "Ask Ananya Kowalski for an intro" toggle per row on the company
+    # page: the group header already says "Ask Ananya Kowalski", so a
+    # second, identical toggle inside every row in that group would repeat
+    # the one fact grouping exists to say once (see _intro_message_body.html).
+    assert "Ask Ananya Kowalski" in response.text
+    assert "Lucas Bhat" in response.text
     assert "Hi Ananya Kowalski," in response.text
     assert "Everline" in response.text
     assert "worked together on a project" in response.text
@@ -610,6 +660,24 @@ def test_the_intro_message_textarea_carries_an_id_or_name() -> None:
     match = re.search(r'<textarea class="intro__message"[^>]*>', response.text)
     assert match is not None
     assert re.search(r'\b(id|name)="[^"]+"', match.group(0)) is not None
+
+
+def test_the_company_page_does_not_nest_a_link_inside_a_disclosure_summary() -> None:
+    # Chrome devtools' "Interactive element inside of a <summary> element"
+    # lint: a real <a> nested inside a <summary> gives two interactive
+    # controls one click -- toggle the row, or navigate to the profile? --
+    # and confuses keyboard/screen-reader users about which one fires.
+    graph = FakeGraph(
+        {
+            "MATCH (insider:Person)-[:WORKED_AT {current: true}]->(:Company {name: $company})": [
+                _EVERLINE_INSIDER
+            ]
+        }
+    )
+    with _client(graph) as client:
+        response = client.get("/companies/Everline")
+    for match in re.finditer(r"<summary\b[^>]*>.*?</summary>", response.text, re.DOTALL):
+        assert "<a " not in match.group(0), f"link nested inside <summary>: {match.group(0)[:200]}"
 
 
 def test_no_inline_script_was_introduced_by_the_intro_feature() -> None:
