@@ -31,6 +31,7 @@ from veloce import (
 )
 
 from app.api import health
+from app.api.docs import register_docs_routes
 from app.api.errors import register_exception_handlers
 from app.api.v1 import router as v1
 from app.core.lifespan import lifespan
@@ -55,12 +56,27 @@ def create_app() -> Veloce:
         version=APP_VERSION,
         description=APP_DESCRIPTION,
         lifespan=lifespan,
+        # Veloce's own /docs and /redoc pull Swagger UI / ReDoc from cdnjs
+        # and unpkg and bootstrap with an inline <script> -- all three
+        # blocked outright by this app's CSP (script-src 'self', no
+        # unsafe-inline), which rendered /docs as a 200-but-blank page: the
+        # HTML shipped, every asset it needed didn't. `docs_url=None,
+        # redoc_url=None` disables *only* those two routes -- `openapi_url`
+        # stays at its default and is registered independently regardless
+        # (confirmed by reading veloce/app/openapi.py's `_setup_openapi`,
+        # not assumed) -- and `register_docs_routes` below replaces them
+        # with same-origin pages backed by vendored assets. See
+        # app/api/docs.py for the full story and why this is the same move
+        # already made for htmx and the webfonts, not a policy exception.
+        docs_url=None,
+        redoc_url=None,
     )
 
     app.include_router(health.router)
     app.include_router(v1.router)
     app.include_router(web.router)
     register_exception_handlers(app)
+    register_docs_routes(app)
 
     # `app.mount("/static", StaticFiles(...))` -- what an earlier draft of
     # this task called for -- works, but `mount_static` is veloce's own
