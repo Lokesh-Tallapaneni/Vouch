@@ -535,7 +535,14 @@ button:hover, input[type="submit"]:hover { filter: brightness(1.15); }
    are equally valid ways in, and stacking them implies a precedence that
    isn't there -- the company route is simply the one a stranger reaches for
    first, so it leads. */
-.hero { max-width: 46rem; }
+/* Matches --measure exactly, not an independent 46rem that happened to be
+   close: the hero card and the lede paragraph inside it are both reading
+   content, and a hero block with its own separate width sat between the
+   lede's edge and the entry-points grid's -- a third ragged edge in the
+   first viewport. Tying it to the token the lede already uses (see the
+   global `p` rule) makes the two edges the same edge by construction,
+   not a coincidence that only holds at one viewport width. */
+.hero { max-width: var(--measure); }
 .hero h1 { margin-bottom: var(--s4); }
 .hero .lede { margin-bottom: var(--s5); }
 
@@ -559,6 +566,15 @@ button:hover, input[type="submit"]:hover { filter: brightness(1.15); }
   grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr));
   gap: var(--s5);
   margin-top: var(--s7);
+  /* Grid's default `stretch` makes every row track as tall as its tallest
+     cell -- the company card carries chips on top of its search box, the
+     person card carries only the search box, so `stretch` left the shorter
+     card with a third of its height as dead space. `start` lets each card
+     size to its own content instead, which is honest: the two entry points
+     are equally valid ways in, but they are not the same *shape* of task,
+     and forcing them to the same height was implying an equivalence the
+     content didn't have. */
+  align-items: start;
 }
 /* The grid already spaces the columns; the global section rule would add a
    second, larger gap between them once they wrap. */
