@@ -19,6 +19,7 @@ from __future__ import annotations
 from veloce import Veloce
 
 from app.api import health
+from app.api.errors import register_exception_handlers
 from app.api.v1 import router as v1
 from app.core.lifespan import lifespan
 
@@ -38,6 +39,7 @@ def create_app() -> Veloce:
 
     app.include_router(health.router)
     app.include_router(v1.router)
+    register_exception_handlers(app)
 
     return app
 
