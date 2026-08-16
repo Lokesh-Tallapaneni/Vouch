@@ -25,8 +25,16 @@ from pathlib import Path
 
 from veloce import Jinja2Templates
 
+from app.web.intro_message import build_intro_message
+
 #: This file is app/web/templating.py -- parent is app/web/, parent.parent
 #: is app/, matching app.main's own BASE_DIR.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+
+#: Registered here, once, rather than pre-computed per row in every page
+#: handler that renders a route (show_person, show_company): the message
+#: only depends on data _chain.html already has in scope wherever a route
+#: renders, so _intro_disclosure.html can just call it directly.
+templates.env.globals["build_intro_message"] = build_intro_message

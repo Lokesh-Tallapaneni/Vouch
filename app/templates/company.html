@@ -49,6 +49,9 @@
           </div>
           {% set route = insider.route %}
           {% include "_chain.html" %}
+          {% set target_name = insider.name %}
+          {% set target_title = insider.title %}
+          {% include "_intro_disclosure.html" %}
         </li>
       {% endfor %}
     </ol>

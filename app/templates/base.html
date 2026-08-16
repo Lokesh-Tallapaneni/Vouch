@@ -34,6 +34,12 @@
      every htmx write request (starting with sign-out in _header.html) with
      the CSRF header CSRFMiddleware requires -- see the file itself. #}
   <script src="/static/js/csrf.js" defer></script>
+  {# Same reasoning as csrf.js above: first-party, no integrity hash. Wires
+     the "Copy" button under a route's intro-message disclosure
+     (_intro_disclosure.html) -- navigator.clipboard needs no CSP
+     exception, but the click handler itself must live in this file, not
+     an inline attribute, for the same script-src 'self' reason. #}
+  <script src="/static/js/copy-intro.js" defer></script>
   {% block head %}{% endblock %}
 </head>
 <body>

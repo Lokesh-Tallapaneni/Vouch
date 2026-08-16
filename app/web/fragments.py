@@ -92,7 +92,17 @@ async def routes_fragment(
     target_id: str,
     max_hops: int = 5,
 ) -> Response:
-    """The route panel, re-queryable at a different hop count."""
+    """The route panel, re-queryable at a different hop count.
+
+    Not currently linked from any page -- built for re-querying at a
+    different hop count, not wired to a control yet. Deliberately doesn't
+    fetch the target's profile the way show_person does: doing so would
+    turn an unknown target_id into a 404 here (a behaviour change with no
+    caller to notice it), where today it degrades to routes without a
+    named target and the intro disclosure's target_name simply comes back
+    blank (see _routes.html's `profile|default`). Revisit if this ever
+    gets wired to a real control.
+    """
     routes = await referrals.find_routes(viewer_id, target_id, max_hops=max_hops, limit=5)
     return templates.TemplateResponse(
         "_routes.html", {"request": request, "routes": routes, "max_hops": max_hops}

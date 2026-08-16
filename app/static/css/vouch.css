@@ -659,3 +659,30 @@ button:hover, input[type="submit"]:hover { filter: brightness(1.15); }
   margin-bottom: var(--s5);
 }
 .insight strong { color: var(--ink); }
+
+/* The intro-message disclosure under a route -- the action a route used
+   to end without. A plain <details>/<summary> needs no JavaScript to
+   open/close; only the copy button (static/js/copy-intro.js) does. */
+.intro { margin-top: var(--s3); }
+.intro summary {
+  cursor: pointer; font-weight: 600; font-size: 0.9rem; color: var(--accent);
+}
+.intro summary:hover { text-decoration: underline; }
+.intro__body { display: flex; flex-direction: column; gap: var(--s2); margin-top: var(--s3); }
+.intro__message {
+  width: 100%; min-height: 8rem; resize: vertical;
+  font: inherit; font-size: 0.85rem; color: var(--ink);
+  background: var(--surface); border: 1px solid var(--rule);
+  border-radius: var(--radius); padding: var(--s3);
+}
+.intro__copy {
+  align-self: flex-start; font: inherit; font-size: 0.85rem;
+  color: var(--accent); background: var(--surface);
+  border: 1px solid var(--rule); border-radius: 999px;
+  padding: 0.3rem var(--s4); cursor: pointer;
+}
+.intro__copy:hover { border-color: var(--accent); }
+/* The one moment this button *does* something visible without a page
+   reload -- "Copied" has to look different from the resting state, or a
+   click that appears to do nothing reads as broken. */
+.intro__copy:disabled { color: var(--conf-strong); border-color: var(--conf-strong); cursor: default; }

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from veloce import TestClient
 
 from app.api.dependencies import get_graph
@@ -90,6 +92,11 @@ def test_signed_in_pages_show_the_persons_name_not_their_email() -> None:
             ],
             "MATCH (a:Account {id": [account_row],
             "OPTIONAL MATCH": [{**PROFILE_ROW, "name": "Priya Sharma"}],
+            # PERSON_NAME_CYPHER -- CurrentAccountName calls
+            # PersonService.get_display_name, not get_profile, so the
+            # header's name lookup needs its own (distinct, single-RETURN)
+            # fragment registered rather than reusing "OPTIONAL MATCH".
+            "RETURN p.name AS name": [{"name": "Priya Sharma"}],
         }
     )
     with _client(graph) as client:
@@ -455,3 +462,72 @@ def test_the_routes_fragment_renders_a_chain_when_a_route_exists() -> None:
         response = client.get("/fragments/routes?target_id=p0001")
     assert response.status_code == 200
     assert "Priya Sharma" in response.text
+
+
+_EVERLINE_INSIDER = {
+    "person_id": "p0264",
+    "name": "Lucas Bhat",
+    "title": "Designer",
+    "chain": ["Lokesh Tallapaneni", "Ananya Kowalski", "Lucas Bhat"],
+    "contexts": ["team", "project"],
+    "strengths": [0.78, 0.55],
+    "hops": 2,
+    "confidence": 0.44,
+}
+
+
+def test_a_company_route_gets_an_intro_message_disclosure() -> None:
+    graph = FakeGraph(
+        {
+            "MATCH (insider:Person)-[:WORKED_AT {current: true}]->(:Company {name: $company})": [
+                _EVERLINE_INSIDER
+            ]
+        }
+    )
+    with _client(graph) as client:
+        response = client.get("/companies/Everline")
+    assert "Ask Ananya Kowalski for an intro" in response.text
+    assert "Hi Ananya Kowalski," in response.text
+    assert "Everline" in response.text
+    assert "worked together on a project" in response.text
+
+
+def test_a_person_page_route_gets_an_intro_message_disclosure() -> None:
+    graph = FakeGraph(
+        {
+            "OPTIONAL MATCH": [PROFILE_ROW],
+            "allShortestPaths": [
+                {
+                    "chain": ["Lokesh Tallapaneni", "Priya Sharma"],
+                    "contexts": ["team"],
+                    "strengths": [0.8],
+                    "hops": 1,
+                    "confidence": 0.8,
+                }
+            ],
+        }
+    )
+    with _client(graph) as client:
+        response = client.get("/people/p0001")
+    assert "Ask Priya Sharma for an intro" in response.text
+    assert "Hi Priya Sharma," in response.text
+
+
+def test_no_inline_script_was_introduced_by_the_intro_feature() -> None:
+    # script-src 'self' blocks inline script outright -- the same trap
+    # that silently broke sign-out's hx-on earlier. Regression guard:
+    # every <script> tag on a page carrying the new copy button must load
+    # an external file, never an inline body.
+    graph = FakeGraph(
+        {
+            "MATCH (insider:Person)-[:WORKED_AT {current: true}]->(:Company {name: $company})": [
+                _EVERLINE_INSIDER
+            ]
+        }
+    )
+    with _client(graph) as client:
+        response = client.get("/companies/Everline")
+    for match in re.finditer(r"<script\b([^>]*)>([^<]*)</script>", response.text):
+        attrs, body = match.groups()
+        assert "src=" in attrs, f"inline script found: {match.group(0)[:120]}"
+        assert body.strip() == ""
