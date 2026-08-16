@@ -1,0 +1,9 @@
+# Normalise to LF in the repository. Windows checkouts still get CRLF locally,
+# but anything the Linux container executes (entrypoints, .cypher, .py) is LF,
+# so a CRLF shebang can never break the image.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.ico binary
+*.woff2 binary
