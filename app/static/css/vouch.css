@@ -675,6 +675,18 @@ button:hover, input[type="submit"]:hover { filter: brightness(1.15); }
   background: var(--surface); border: 1px solid var(--rule);
   border-radius: var(--radius); padding: var(--s3);
 }
+/* The message length genuinely varies -- a one-hop route's note is a couple
+   of lines, a three-hop one with long names is closer to ten, and the same
+   text wraps to far more lines in a phone-width column. Any fixed height is
+   therefore wrong for someone: too short and it cuts off mid-sentence, too
+   tall and short notes sit in a mostly empty box.
+   `field-sizing: content` sizes the field to what it holds, which is exactly
+   the rule we want. It is Chromium-only for now, so the fixed `min-height`
+   above stays as the floor every other browser falls back to -- this is
+   progressive enhancement, not a dependency. `max-height` keeps a long
+   message from pushing the Copy button off-screen. */
+.intro__message { field-sizing: content; max-height: 60vh; }
+
 /* Sits between the draft and the copy button because that is the order the
    decision happens in: read it, change it, then take it. */
 .intro__hint { font-size: 0.8rem; color: var(--muted); margin: 0; }
