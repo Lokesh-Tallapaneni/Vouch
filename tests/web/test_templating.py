@@ -10,7 +10,6 @@ else's machine, in front of an audience.
 from __future__ import annotations
 
 import re
-from pathlib import Path
 
 from app.web.templating import STATIC_DIR, asset_url
 
@@ -21,12 +20,14 @@ def test_asset_url_carries_a_digest_of_the_file_contents() -> None:
     assert re.fullmatch(r"[0-9a-f]{8}", url.split("?v=")[1])
 
 
-def test_the_digest_changes_when_the_file_does(tmp_path: Path) -> None:
+def test_the_digest_changes_when_the_file_does() -> None:
     # The whole point of the digest is that editing a file changes the URL.
-    # Exercised against a real file under the static directory rather than a
-    # mock, because the thing that can break is the mtime-keyed cache: hash
-    # the path alone and the first digest sticks for the life of the
-    # process, which is precisely the bug this guards.
+    # Exercised against a real file rather than a mock because the ways this
+    # breaks are all filesystem-level: memoising on path alone pins the first
+    # digest for the life of the process, and memoising on (path, mtime)
+    # still goes stale when two writes land inside the filesystem's timestamp
+    # resolution -- which is exactly what this test caught on Windows, and
+    # why _asset_digest hashes every time.
     scratch = STATIC_DIR / "css" / "_digest_probe.css"
     try:
         scratch.write_text("a{}", encoding="utf-8")
