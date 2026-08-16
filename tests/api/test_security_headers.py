@@ -125,3 +125,67 @@ def test_a_route_outside_the_override_is_not_bound_by_the_sign_in_limit() -> Non
     with TestClient(create_app()) as client:
         statuses = [client.get("/health").status_code for _ in range(21)]
     assert all(status == 200 for status in statuses)
+
+
+def test_two_forwarded_clients_do_not_share_a_sign_in_rate_limit_bucket(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The deployment-topology bug ProxyFix (registered ahead of
+    # RateLimitMiddleware in create_app(), see app.main) fixes: Render sits
+    # in front of this app as a reverse proxy, so without ProxyFix every
+    # caller's client_host would resolve to whatever the proxied connection
+    # reports -- the same value for every visitor -- collapsing the sign-in
+    # limiter into one bucket shared by the whole site. Proven here by two
+    # forwarded clients: one exhausts its budget, the other is unaffected.
+    monkeypatch.setattr("time.time", lambda: 1_700_000_000.0)
+    app = create_app()
+    app.dependency_overrides[get_graph] = lambda: FakeGraph()
+    with TestClient(app) as client:
+        client.get("/health")
+        token = client.cookies["csrf_token"]
+
+        def attempt(forwarded_for: str) -> int:
+            return client.post(
+                "/api/v1/auth/login",
+                json={"email": "nobody@example.com", "password": "wrong"},
+                headers={"x-csrf-token": token, "x-forwarded-for": forwarded_for},
+            ).status_code
+
+        statuses = [attempt("203.0.113.10") for _ in range(20)]
+        assert statuses == [401] * 20
+        assert attempt("203.0.113.10") == 429  # this client's budget is spent
+
+        assert attempt("203.0.113.99") == 401  # a different client, a fresh bucket
+
+
+def test_the_forwarded_for_hop_trusted_is_the_one_render_itself_added() -> None:
+    # ProxyFix is configured x_for=1 (see app.main): exactly one hop trusted,
+    # matching Render adding exactly one proxy between caller and container.
+    # `X-Forwarded-For` is read right-to-left (RFC-style: each proxy appends
+    # its own hop on the right), so with x_for=1 the *right-most* entry is
+    # what's trusted -- an attacker-supplied left-most entry claiming to be
+    # "the real client" is exactly the forged value x_for is supposed to
+    # ignore. Proven the same way as the test above: two requests that
+    # differ only in a spoofed left-most entry land in the same bucket,
+    # because ProxyFix reads the same (right-most, genuine) hop from both.
+    app = create_app()
+    app.dependency_overrides[get_graph] = lambda: FakeGraph()
+    with TestClient(app) as client:
+        client.get("/health")
+        token = client.cookies["csrf_token"]
+
+        def attempt(forwarded_for: str) -> int:
+            return client.post(
+                "/api/v1/auth/login",
+                json={"email": "nobody@example.com", "password": "wrong"},
+                headers={"x-csrf-token": token, "x-forwarded-for": forwarded_for},
+            ).status_code
+
+        first = attempt("203.0.113.50")
+        # A forged left-most hop claiming a different "real" client; the
+        # genuine, right-most hop Render itself would have added is the same
+        # as above. If x_for trusted more than one hop, this would land in
+        # a different bucket and get a fresh 401 instead of counting toward
+        # the same budget.
+        second = attempt("198.51.100.1, 203.0.113.50")
+        assert first == second == 401

@@ -22,6 +22,7 @@ from veloce import (
     CSPMiddleware,
     CSRFMiddleware,
     LoggingMiddleware,
+    ProxyFix,
     RateLimitMiddleware,
     RequestIDMiddleware,
     SecurityHeadersMiddleware,
@@ -73,12 +74,50 @@ def create_app() -> Veloce:
     # assumed.
     app.mount_static(prefix="/static", directory=str(BASE_DIR / "static"))
 
-    # RequestIDMiddleware first, LoggingMiddleware second: veloce's
-    # Middleware pipeline runs process_request in registration order (and
-    # process_response in reverse), so registering the id-minting middleware
-    # first is what makes request.state.request_id exist before anything
-    # downstream -- the route handler, app.api.errors's reference field --
-    # runs. Confirmed against veloce's own source, not assumed:
+    # First middleware registered, ahead of even RequestIDMiddleware: every
+    # downstream reader of request identity -- most importantly
+    # RateLimitMiddleware's per-client bucket key, but also the access log
+    # and request.scheme/url -- has to see the corrected values, not the
+    # raw ones, or it runs against Render's edge instead of the caller.
+    #
+    # Render terminates TLS and forwards over plain HTTP to this container,
+    # adding exactly one hop, so `x_for=1`/`x_proto=1` (both veloce's own
+    # defaults, spelled out here rather than left implicit) are correct for
+    # this deployment: RateLimitMiddleware._bucket_key falls back through
+    # request.client_host -> X-Forwarded-For's right-most hop -> a
+    # User-Agent hash -> a fresh id per request (see its own docstring).
+    # `Request.client_host` itself prefers `request._state["proxy_fix_client"]`
+    # over the raw TCP peer when set (see veloce/http/request.py) -- that state
+    # key is exactly what ProxyFix.process_request writes below, which is
+    # what makes this the fix rather than a parallel, unread mechanism.
+    # Without it, every caller's `client_host` resolves to Render's own edge
+    # address (whichever value the ASGI scope happens to carry for a
+    # proxied connection), collapsing every visitor into the *same*
+    # rate-limit bucket -- turning the login throttle into a shared quota
+    # that unrelated traffic can exhaust, locking out every other caller
+    # including a legitimate one.
+    #
+    # `x_for=2` or higher would trust an *additional* hop beyond Render's
+    # own -- meaning the second-from-right entry in a client-forged
+    # X-Forwarded-For header, not a value any real proxy added. That lets a
+    # caller pick their own bucket key by hand, which defeats the limiter
+    # more thoroughly than trusting nothing at all. `x_host`/`x_port`/
+    # `x_prefix` stay at 0 (disabled): Render forwards the original Host
+    # header transparently for this single-service deployment, so there is
+    # nothing here that needs X-Forwarded-Host/-Port/-Prefix trusted, and
+    # enabling them without a use for them is trust surface bought for
+    # nothing -- the same reasoning that kept the CSP free of an unused CDN
+    # host.
+    app.add_middleware(ProxyFix, x_for=1, x_proto=1)
+
+    # RequestIDMiddleware next, LoggingMiddleware after it -- ProxyFix above
+    # runs first overall, but between these two the order still matters the
+    # same way it always has: veloce's Middleware pipeline runs
+    # process_request in registration order (and process_response in
+    # reverse), so registering the id-minting middleware ahead of the one
+    # that logs is what makes request.state.request_id exist before
+    # anything downstream -- the route handler, app.api.errors's reference
+    # field -- runs. Confirmed against veloce's own source, not assumed:
     # `_pipeline.py`'s `build_request_middleware` fuses `process_request`
     # bound methods in forward (registration) order, and `app/dispatch.py`'s
     # `_run_request_phase` walks that fused chain in the order given -- no
