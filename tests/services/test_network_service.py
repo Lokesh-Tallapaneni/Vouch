@@ -42,6 +42,25 @@ async def test_bus_factor_risks_are_mapped() -> None:
     assert "size(holders) = 1" in graph.calls[0].cypher
 
 
+async def test_bus_factor_holders_are_deduplicated_by_id_not_name() -> None:
+    # A bare collect(DISTINCT p.name) would let two different people who
+    # happen to share a name collapse into one "holder" -- there is no
+    # uniqueness constraint on Person.name, only on Person.id (migration
+    # 0001). Structural regression guard: if this collapses back to
+    # collect(DISTINCT p.name), it fails here rather than only showing up as
+    # a wrong bus-factor count against live data nobody is watching closely.
+    graph = FakeGraph(
+        {
+            "size(holders) = 1": [
+                {"project": "Atlas", "skill": "Cypher", "sole_holder": "Priya Sharma"},
+            ]
+        }
+    )
+    await NetworkService(graph).find_bus_factor_risks()
+    assert "collect(DISTINCT {id: p.id, name: p.name})" in graph.calls[0].cypher
+    assert "holders[0].name" in graph.calls[0].cypher
+
+
 async def test_an_empty_result_is_an_empty_list() -> None:
     assert await NetworkService(FakeGraph({})).find_brokers() == []
 

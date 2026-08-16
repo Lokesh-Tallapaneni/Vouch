@@ -50,15 +50,27 @@ LIMIT $limit
 
 #: Q4 -- skills on a project held by exactly one person.
 #:
-#: `collect(DISTINCT p.name)` before the `size(...) = 1` check is what makes
-#: this count distinct holders rather than distinct (person, edge) pairs: the
-#: same person reachable twice through different WORKS_ON/HAS_SKILL paths
-#: must still read as one holder, not two.
+#: `collect(DISTINCT {id: p.id, name: p.name})` before the `size(...) = 1`
+#: check is what makes this count distinct holders rather than distinct
+#: (person, edge) pairs: the same person reachable twice through different
+#: WORKS_ON/HAS_SKILL paths must still read as one holder, not two.
+#:
+#: Dedupes on `p.id`, not `p.name`. `DISTINCT` on a bare name would collapse
+#: two different people who happen to share a name into one "holder" --
+#: correctness would then depend on the generator's name-uniqueness
+#: discipline (a `used` set, `scripts/generate.py`) and the absence of any
+#: other `Person`-creating code path, rather than on the database. Neither of
+#: those is a schema-level guarantee: there is no uniqueness constraint on
+#: `Person.name` in the migrations, only on `Person.id` (migration 0001).
+#: Dedup now rests on the constraint that actually exists. Re-verified
+#: against live data after this change: the result set is identical to the
+#: name-keyed form, as expected on a graph where every seeded name already
+#: happens to be unique.
 BUS_FACTOR_CYPHER = """
 MATCH (pr:Project)<-[:WORKS_ON]-(p:Person)-[:HAS_SKILL]->(s:Skill)
-WITH pr, s, collect(DISTINCT p.name) AS holders
+WITH pr, s, collect(DISTINCT {id: p.id, name: p.name}) AS holders
 WHERE size(holders) = 1
-RETURN pr.name AS project, s.name AS skill, holders[0] AS sole_holder
+RETURN pr.name AS project, s.name AS skill, holders[0].name AS sole_holder
 ORDER BY project ASC, skill ASC
 LIMIT $limit
 """
